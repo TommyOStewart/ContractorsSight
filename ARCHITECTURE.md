@@ -23,7 +23,7 @@ pnpm workspaces, with `nodeLinker: hoisted` (set in `pnpm-workspace.yaml`) becau
  Capture ──upload──▶ captures ──▶ text extraction ──▶ LLM planner ──▶ validate ──▶ change_sets (pending) ──▶ review diff
  (audio | image | text)          (STT / OCR, stubbed)  (tool calls,     │                                       │
                                                          stubbed)       └─ issues fed back for repair (TODO)    ▼
-                                                                                                   approve ──▶ commit RPC (TODO)
+                                                                                                   approve ──▶ worker /approve
                                                                                                                re-validate, resolve temp IDs,
                                                                                                                apply ops, write audit_events
 ```
@@ -33,7 +33,9 @@ pnpm workspaces, with `nodeLinker: hoisted` (set in `pnpm-workspace.yaml`) becau
 3. **Planning.** The LLM gets the text, the org glossary (`glossary_terms`, e.g. "SB" = SharkBite fitting), and the tool definitions. It can call lookup tools (`find_client`, `find_job`), which the worker executes immediately. Every other tool call is collected into a `ChangeSetDraft`. This sits behind `ChangeSetPlanner` and is also a stub for now.
 4. **Validation.** `validateChangeSet` in `packages/shared` (details below).
 5. **Review.** The draft is stored in `change_sets` with status `pending`, along with any validation issues. The phone shows it as a diff.
-6. **Commit** (not built yet). Approval goes through a security-definer RPC that re-validates, checks job versions under lock, resolves temp IDs, applies the operations in one transaction, and writes `audit_events`.
+6. **Commit.** The app calls `POST /change-sets/:id/approve` on the worker with the user's access token. In one transaction, `approveChangeSet` (`services/worker/src/commit`) locks the ChangeSet, checks the user belongs to its org, locks the touched jobs and re-runs `validateChangeSet` (versions included), resolves temp IDs, applies each operation through its applier, writes `audit_events`, and marks the ChangeSet `approved` and the capture `committed`. If re-validation fails, nothing is applied and the issues are saved on the ChangeSet. `POST /change-sets/:id/reject` marks both rejected.
+
+   Committing happens in the worker, not in a database function, so the TypeScript validator stays the single source of the rules. Each tool has exactly one applier in `APPLIERS`, a complete record keyed by tool name, the same way `BUSINESS_RULES` is.
 
 ## Core rules
 
@@ -44,7 +46,7 @@ These are architectural invariants. If a change seems to need one of them broken
 The LLM only emits tool calls. Tool calls become a staged `ChangeSet`. Nothing is committed until a human approves it. This is enforced structurally, not by convention:
 
 - The worker's pipeline (`processCapture`) has no write path to domain tables. Its only output is `ChangeSetStore.savePending`.
-- `change_sets` has no insert or update policy for app users, so approval can only happen through the commit RPC.
+- `change_sets` has no insert or update policy for app users, so approval can only happen through the worker's approve endpoint.
 - Even `draft_supply_order` creates only a draft. Sending an order to a supplier is a separate human action.
 
 ### 2. Every tool call is validated
@@ -104,7 +106,7 @@ Time passes between the worker reading a job and the contractor tapping Approve.
 
 - `jobs.version` starts at 1 and is incremented by trigger on every job update. It is also bumped when the job's `material_items` or `quotes` change. Callers cannot set it.
 - A ChangeSet records `baseJobVersions: { [jobId]: version }` for every existing job it touches. Validation rejects it if any version moved, or if a touched job is missing from the map.
-- The validation-time check is advisory. The commit RPC must repeat it with the job rows locked (`select … for update`) inside the commit transaction.
+- The validation-time check is advisory. The approve path repeats it with the job rows locked (`select … for update`) inside the commit transaction.
 - Quotes have a parallel check: `revise_quote.basedOnQuoteId` must be the latest version (`STALE_QUOTE`).
 
 ## Job status state machine
@@ -140,7 +142,7 @@ The RLS helper functions (`is_org_member`, `has_org_role`) are `security definer
 |---|---|
 | Domain tables (clients, jobs, materials, quotes, …) | Full CRUD within their orgs |
 | `captures` | Read; create their own |
-| `change_sets` | Read only. Approval goes through the commit RPC. |
+| `change_sets` | Read only. Approve/reject go through the worker. |
 | `audit_events` | Read; insert `manual` events as themselves; never update or delete |
 | `organizations`, `org_members` | Read their own; owners and admins manage |
 
@@ -157,7 +159,7 @@ The RLS helper functions (`is_org_member`, `has_org_role`) are `security definer
 
 - UI beyond sign-in, company setup, and a placeholder home screen.
 - Real speech-to-text, OCR, and LLM calls. Stubs are in `services/worker/src/pipeline/stubs.ts`.
-- The commit RPC (approve → apply ops → audit), and inviting teammates to a company.
+- Inviting teammates to a company.
 - The validate → LLM repair loop.
 - Offline sync between on-device SQLite and Supabase.
 - Supplier integrations (email/API order sending).
@@ -167,11 +169,12 @@ The RLS helper functions (`is_org_member`, `has_org_role`) are `security definer
 ```bash
 pnpm install
 pnpm test                    # all unit tests (no database needed)
+pnpm --filter @contractorsight/worker test:integration   # commit path against local Supabase
 pnpm typecheck
 pnpm export:tool-schemas     # writes packages/shared/generated/tools.json
 pnpm db:start                # local Supabase (needs Docker)
 pnpm db:reset                # re-apply all migrations from scratch
-pnpm --filter @contractorsight/worker start   # run the stubbed pipeline once
+pnpm --filter @contractorsight/worker start   # HTTP worker on :8787 (needs services/worker/.env)
 ```
 
 **Adding a tool:**
