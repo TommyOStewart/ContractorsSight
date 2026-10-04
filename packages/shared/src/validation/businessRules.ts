@@ -25,6 +25,8 @@ export class Projection {
   readonly quotes = new Map<string, { jobId: string }>();
   /** Temp IDs of clients created in this ChangeSet with a site address. */
   readonly newClientsWithSite = new Set<string>();
+  /** totalCents is null for an invoice created in this ChangeSet from a quote (total known only at commit). */
+  readonly invoices = new Map<string, { jobId: string; status: string; totalCents: number | null; paidCents: number }>();
 
   constructor(snapshots: Iterable<EntitySnapshot>) {
     for (const s of snapshots) {
@@ -47,6 +49,9 @@ export class Projection {
         case "quote":
           this.quotes.set(s.id, { jobId: s.jobId });
           break;
+        case "invoice":
+          this.invoices.set(s.id, { jobId: s.jobId, status: s.status, totalCents: s.totalCents, paidCents: s.paidCents });
+          break;
       }
     }
   }
@@ -59,6 +64,15 @@ export interface RuleContext {
 }
 
 type Rule<N extends StagedToolName> = (args: ToolArgs<N>, ctx: RuleContext) => void;
+
+/** True when an ISO date is after tomorrow (a day of slack for time zones). */
+function isFuture(ctx: RuleContext, isoDate: string): boolean {
+  const tomorrow = new Date(ctx.now.getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  return isoDate > tomorrow;
+}
+
+/** Statuses a job can be billed in: work agreed (deposits) through done. */
+const BILLABLE_STATUSES: readonly JobStatus[] = ["accepted", "scheduled", "in_progress", "completed", "invoiced"];
 
 /** Statuses in which a quote can still be revised (change orders allowed until the work is done). */
 const QUOTABLE_STATUSES: readonly JobStatus[] = ["lead", "quoted", "accepted", "scheduled", "in_progress"];
@@ -233,6 +247,54 @@ export const BUSINESS_RULES: { [N in StagedToolName]: Rule<N> } = {
       if (args.jobId) materialBelongsToJob(ctx, line.materialId, args.jobId, ["lines", i, "materialId"]);
       else liveMaterial(ctx, line.materialId, ["lines", i, "materialId"]);
     });
+  },
+
+  create_invoice(args, ctx) {
+    const job = openJob(ctx, args.jobId, ["jobId"]);
+    if (!job) return;
+    if (!BILLABLE_STATUSES.includes(job.status)) {
+      ctx.report("BUSINESS_RULE", `A ${job.status} job can't be billed yet; it needs an accepted quote first.`, ["jobId"]);
+      return;
+    }
+    if (!args.lineItems && !job.hasQuote) {
+      ctx.report("BUSINESS_RULE", "This job has no quote to bill from. Give the line items.", ["lineItems"]);
+    }
+    args.lineItems?.forEach((line, i) => {
+      if (line.kind === "material" && line.materialId) materialBelongsToJob(ctx, line.materialId, args.jobId, ["lineItems", i, "materialId"]);
+    });
+    if (args.tempId) {
+      const total = args.lineItems
+        ? args.lineItems.reduce((sum, l) => sum + (l.kind === "labor" ? l.hours * l.hourlyRateDollars : l.quantity * l.unitPriceDollars), 0)
+        : null;
+      ctx.projection.invoices.set(args.tempId, { jobId: args.jobId, status: "sent", totalCents: total === null ? null : Math.round(total * 100), paidCents: 0 });
+    }
+    if (job.status === "completed") job.status = "invoiced";
+  },
+
+  record_payment(args, ctx) {
+    const invoice = ctx.projection.invoices.get(args.invoiceId);
+    if (!invoice) return;
+    if (invoice.status === "void" || invoice.status === "paid") {
+      ctx.report("BUSINESS_RULE", `That invoice is already ${invoice.status}.`, ["invoiceId"]);
+      return;
+    }
+    const cents = Math.round(args.amountDollars * 100);
+    if (cents <= 0) ctx.report("BUSINESS_RULE", "A payment needs an amount.", ["amountDollars"]);
+    if (invoice.totalCents !== null) {
+      const owed = invoice.totalCents - invoice.paidCents;
+      if (cents > owed + 1) ctx.report("BUSINESS_RULE", `That's more than is owed on this invoice (${(owed / 100).toFixed(2)}).`, ["amountDollars"]);
+      if (invoice.paidCents + cents >= invoice.totalCents) invoice.status = "paid";
+    }
+    invoice.paidCents += cents;
+    if (args.paidOn && isFuture(ctx, args.paidOn)) ctx.report("BUSINESS_RULE", "Payment date is in the future.", ["paidOn"]);
+  },
+
+  record_expense(args, ctx) {
+    if (args.supplyHouseId && args.vendorName) {
+      ctx.report("BUSINESS_RULE", "Give either supplyHouseId or vendorName, not both.", ["vendorName"]);
+    }
+    if (args.jobId) openJob(ctx, args.jobId, ["jobId"]);
+    if (args.spentOn && isFuture(ctx, args.spentOn)) ctx.report("BUSINESS_RULE", "Expense date is in the future.", ["spentOn"]);
   },
 
   record_purchase(args, ctx) {

@@ -123,6 +123,12 @@ lead → quoted → accepted → scheduled → in_progress → completed → inv
 - Entering `scheduled` requires a start time. `schedule_job` moves `accepted → scheduled`, and reschedules a job that is already `scheduled`.
 - Entering `quoted` requires that the job has a quote.
 
+## Money
+
+- `invoices` belong to a job (several per job: deposit, progress, final), numbered per company from #1001 by the commit path under an advisory lock. Lines come from the latest quote unless the capture gives them. Creating one moves a `completed` job to `invoiced`.
+- `payments` are recorded against an invoice. When payments cover the total the invoice becomes `paid`, and when every non-void invoice on a job is paid an `invoiced` job becomes `paid`; the model is told not to change those statuses itself.
+- `expenses` hold every business purchase with a category (`expense_category`) for the tax view. `record_purchase` writes a `materials` expense and links its parts (`material_items.expense_id`); `record_expense` covers everything else. Categories organize; the app never claims something is deductible.
+
 ## Database conventions
 
 - Tables are plural snake_case. TypeScript is camelCase, and the repository layer maps between the two.
@@ -157,7 +163,8 @@ The RLS helper functions (`is_org_member`, `has_org_role`) are `security definer
 
 ## Not built yet (intentionally)
 
-- Invoices, payments, and business expenses (needed for the dashboard and tax views).
+- Mileage tracking.
+- The business dashboard and tax-year export (data is in place: invoices, payments, expenses).
 - Editing records directly in the app (today every change goes through a capture).
 - Inviting teammates to a company.
 - Offline sync between on-device SQLite and Supabase.

@@ -30,20 +30,22 @@ interface Loaded {
 
 async function loadNames(operations: { tool: string; args: Args }[]): Promise<Names> {
   const ids = referencedIds(operations);
-  const names: Names = { job: new Map(), client: new Map(), material: new Map(), supplyHouse: new Map(), site: new Map() };
+  const names: Names = { job: new Map(), client: new Map(), material: new Map(), supplyHouse: new Map(), site: new Map(), invoice: new Map() };
   const list = (s: Set<string>) => [...s];
-  const [jobs, clients, materials, supplyHouses, sites] = await Promise.all([
+  const [jobs, clients, materials, supplyHouses, sites, invoices] = await Promise.all([
     ids.job.size ? supabase.from('jobs').select('id, title, clients (name)').in('id', list(ids.job)) : null,
     ids.client.size ? supabase.from('clients').select('id, name').in('id', list(ids.client)) : null,
     ids.material.size ? supabase.from('material_items').select('id, description, jobs (title)').in('id', list(ids.material)) : null,
     ids.supplyHouse.size ? supabase.from('supply_houses').select('id, name').in('id', list(ids.supplyHouse)) : null,
     ids.site.size ? supabase.from('sites').select('id, line1, label').in('id', list(ids.site)) : null,
+    ids.invoice.size ? supabase.from('invoices').select('id, number, jobs (title)').in('id', list(ids.invoice)) : null,
   ]);
   for (const j of jobs?.data ?? []) names.job.set(j.id, `${j.title} · ${j.clients?.name ?? 'unknown client'}`);
   for (const c of clients?.data ?? []) names.client.set(c.id, c.name);
   for (const m of materials?.data ?? []) names.material.set(m.id, `${m.description} (${m.jobs?.title ?? 'a job'})`);
   for (const s of supplyHouses?.data ?? []) names.supplyHouse.set(s.id, s.name);
   for (const s of sites?.data ?? []) names.site.set(s.id, s.label ? `${s.label} (${s.line1})` : s.line1);
+  for (const i of invoices?.data ?? []) names.invoice.set(i.id, `Invoice #${i.number} · ${i.jobs?.title ?? 'a job'}`);
   addTempNames(operations, names);
   return names;
 }

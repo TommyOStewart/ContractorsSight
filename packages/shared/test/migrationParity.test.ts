@@ -6,10 +6,13 @@ import {
   CAPTURE_STATUSES,
   CAPTURE_TYPES,
   CHANGE_SET_STATUSES,
+  EXPENSE_CATEGORIES,
+  INVOICE_STATUSES,
   JOB_STATUSES,
   JOB_STATUS_TRANSITIONS,
   MATERIAL_STATUSES,
   ORG_ROLES,
+  PAYMENT_METHODS,
   QUOTE_LINE_KINDS,
   QUOTE_STATUSES,
   SUPPLY_INTEGRATION_TYPES,
@@ -44,6 +47,9 @@ describe("migrations match shared enums", () => {
     ["change_set_status", CHANGE_SET_STATUSES],
     ["audit_source", AUDIT_SOURCES],
     ["org_role", ORG_ROLES],
+    ["invoice_status", INVOICE_STATUSES],
+    ["payment_method", PAYMENT_METHODS],
+    ["expense_category", EXPENSE_CATEGORIES],
   ] as const)("%s", (name, values) => {
     expect(sqlEnum(name)).toEqual([...values]);
   });

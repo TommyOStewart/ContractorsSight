@@ -1,4 +1,4 @@
-import type { JobStatus } from "../domain/enums";
+import type { InvoiceStatus, JobStatus } from "../domain/enums";
 import type { EntityKind } from "../domain/refs";
 
 export interface EntityKey {
@@ -24,6 +24,7 @@ export type EntitySnapshot =
   | { entity: "quote"; id: string; orgId: string; jobId: string }
   | { entity: "material"; id: string; orgId: string; jobId: string; removed: boolean }
   | { entity: "equipment"; id: string; orgId: string; siteId: string }
+  | { entity: "invoice"; id: string; orgId: string; jobId: string; status: InvoiceStatus; totalCents: number; paidCents: number }
   | { entity: "supplyHouse" | "supplyOrder" | "attachment"; id: string; orgId: string };
 
 /**

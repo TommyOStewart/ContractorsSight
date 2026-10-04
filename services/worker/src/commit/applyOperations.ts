@@ -233,9 +233,106 @@ const APPLIERS: { [N in StagedToolName]: Applier<N> } = {
     await audit(ctx, { entityType: "supplyOrder", entityId: order.id as string, action: "create", after: { ...order, lines } });
   },
 
+  async create_invoice(args, ctx) {
+    let lines: { kind: string; description: string; quantity: number; unit: string | null; unitPriceCents: number }[];
+    if (args.lineItems) {
+      lines = args.lineItems.map((l) =>
+        l.kind === "labor"
+          ? { kind: "labor", description: l.description, quantity: l.hours, unit: "hr", unitPriceCents: dollarsToCents(l.hourlyRateDollars) }
+          : { kind: "material", description: l.description, quantity: l.quantity, unit: l.unit ?? null, unitPriceCents: dollarsToCents(l.unitPriceDollars) },
+      );
+    } else {
+      // Bill the latest quote as it stands.
+      lines = await ctx.tx<{ kind: string; description: string; quantity: number; unit: string | null; unitPriceCents: number }[]>`
+        select li.kind, li.description, li.quantity::float8 as quantity, li.unit, li.unit_price_cents::float8 as unit_price_cents
+        from quote_line_items li
+        where li.quote_id = (select id from quotes where job_id = ${args.jobId} order by version desc limit 1)
+        order by li.position`;
+      if (!lines.length) throw new Error("The job's latest quote has no lines to bill.");
+    }
+    const totalCents = lines.reduce((sum, l) => sum + Math.round(l.quantity * l.unitPriceCents), 0);
+    const issuedOn = new Date().toISOString().slice(0, 10);
+    const invoice = await insertOne(ctx, "invoices", {
+      id: args.tempId,
+      orgId: ctx.orgId,
+      jobId: args.jobId,
+      number: await nextInvoiceNumber(ctx),
+      status: "sent",
+      issuedOn,
+      dueOn: args.dueInDays === undefined ? undefined : new Date(Date.now() + args.dueInDays * 86_400_000).toISOString().slice(0, 10),
+      notes: args.notes,
+      totalCents,
+      createdBy: ctx.actorUserId,
+    });
+    const lineRows = await ctx.tx`
+      insert into invoice_line_items ${ctx.tx(lines.map((l, position) => ({ ...l, position, orgId: ctx.orgId, invoiceId: invoice.id as string })))} returning *`;
+    await audit(ctx, { entityType: "invoice", entityId: invoice.id as string, action: "create", after: { ...invoice, lineItems: lineRows } });
+
+    const job = await selectForUpdate(ctx, "jobs", args.jobId);
+    if (job.status === "completed") {
+      const { before, after } = await updateOne(ctx, "jobs", args.jobId, { status: "invoiced" });
+      await audit(ctx, { entityType: "job", entityId: args.jobId, action: "status_change", before, after });
+    }
+  },
+
+  async record_payment(args, ctx) {
+    const invoice = await selectForUpdate(ctx, "invoices", args.invoiceId);
+    const payment = await insertOne(ctx, "payments", {
+      orgId: ctx.orgId,
+      invoiceId: args.invoiceId,
+      amountCents: dollarsToCents(args.amountDollars),
+      paidOn: args.paidOn,
+      method: args.method,
+      reference: args.reference,
+      createdBy: ctx.actorUserId,
+    });
+    await audit(ctx, { entityType: "payment", entityId: payment.id as string, action: "create", after: payment });
+
+    const [sum] = await ctx.tx<{ paid: string }[]>`select coalesce(sum(amount_cents), 0) as paid from payments where invoice_id = ${args.invoiceId}`;
+    if (Number(sum!.paid) >= Number(invoice.totalCents) && invoice.status !== "paid") {
+      const { before, after } = await updateOne(ctx, "invoices", args.invoiceId, { status: "paid" });
+      await audit(ctx, { entityType: "invoice", entityId: args.invoiceId, action: "status_change", before, after });
+      await closeJobIfFullyPaid(ctx, invoice.jobId as string);
+    }
+  },
+
+  async record_expense(args, ctx) {
+    const expense = await insertOne(ctx, "expenses", {
+      orgId: ctx.orgId,
+      spentOn: args.spentOn,
+      category: args.category,
+      totalCents: dollarsToCents(args.totalDollars),
+      description: args.description,
+      supplyHouseId: args.supplyHouseId,
+      vendorName: args.vendorName,
+      jobId: args.jobId,
+      receiptAttachmentId: args.receiptAttachmentId,
+      captureId: ctx.captureId,
+      createdBy: ctx.actorUserId,
+    });
+    await audit(ctx, { entityType: "expense", entityId: expense.id as string, action: "create", after: expense });
+  },
+
   async record_purchase(args, ctx) {
+    const linesTotal = args.lines.reduce((sum, l) => sum + (l.unitCostDollars ?? 0) * l.quantity, 0);
+    const expense = await insertOne(ctx, "expenses", {
+      orgId: ctx.orgId,
+      spentOn: args.purchasedOn,
+      category: "materials",
+      totalCents: dollarsToCents(args.totalDollars ?? linesTotal),
+      description: args.lines.map((l) => l.description).join(", ").slice(0, 300),
+      supplyHouseId: args.supplyHouseId,
+      vendorName: args.vendorName,
+      jobId: args.jobId,
+      receiptAttachmentId: args.receiptAttachmentId,
+      captureId: ctx.captureId,
+      createdBy: ctx.actorUserId,
+    });
+    await audit(ctx, { entityType: "expense", entityId: expense.id as string, action: "create", after: expense });
+
     for (const line of args.lines) {
       const material = await insertOne(ctx, "material_items", {
+        expenseId: expense.id,
         orgId: ctx.orgId,
         jobId: args.jobId,
         description: line.description,
@@ -252,24 +349,26 @@ const APPLIERS: { [N in StagedToolName]: Applier<N> } = {
       const { before, after } = await updateOne(ctx, "attachments", args.receiptAttachmentId, { jobId: args.jobId });
       await audit(ctx, { entityType: "attachment", entityId: args.receiptAttachmentId, action: "update", before, after });
     }
-
-    // Receipt details with no column of their own are kept as a note on the job.
-    const details = [
-      args.vendorName && `from ${args.vendorName}`,
-      args.purchasedOn && `on ${args.purchasedOn}`,
-      args.totalDollars !== undefined && `total $${args.totalDollars.toFixed(2)}`,
-    ].filter(Boolean);
-    if (details.length) {
-      const note = await insertOne(ctx, "notes", {
-        orgId: ctx.orgId,
-        jobId: args.jobId,
-        body: `Purchase recorded ${details.join(", ")} (${args.lines.length} item${args.lines.length === 1 ? "" : "s"}).`,
-        authorId: ctx.actorUserId,
-      });
-      await audit(ctx, { entityType: "note", entityId: note.id as string, action: "create", after: note });
-    }
   },
 };
+
+/** Next invoice number for the company (#1001 first). Serialized per org so two approvals can't collide. */
+async function nextInvoiceNumber(ctx: ApplyContext): Promise<number> {
+  await ctx.tx`select pg_advisory_xact_lock(hashtext('invoice-number:' || ${ctx.orgId}))`;
+  const [row] = await ctx.tx<{ next: number }[]>`select coalesce(max(number), 1000) + 1 as next from invoices where org_id = ${ctx.orgId}`;
+  return row!.next;
+}
+
+/** Once every non-void invoice on a job is paid, an invoiced job moves to paid. */
+async function closeJobIfFullyPaid(ctx: ApplyContext, jobId: string) {
+  const [open] = await ctx.tx<{ unpaid: number }[]>`
+    select count(*)::int as unpaid from invoices where job_id = ${jobId} and status not in ('paid', 'void')`;
+  if (open!.unpaid > 0) return;
+  const job = await selectForUpdate(ctx, "jobs", jobId);
+  if (job.status !== "invoiced") return;
+  const { before, after } = await updateOne(ctx, "jobs", jobId, { status: "paid" });
+  await audit(ctx, { entityType: "job", entityId: jobId, action: "status_change", before, after });
+}
 
 /** Applies already-validated, temp-ID-resolved operations in order. Throws (rolling back) on any DB error. */
 export async function applyOperations(operations: StagedOperation[], ctx: ApplyContext): Promise<void> {

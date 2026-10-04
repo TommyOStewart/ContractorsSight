@@ -18,6 +18,8 @@ export const ids = {
   supplyHouse: "66666666-6666-4666-8666-666666666666",
   otherOrgClient: "77777777-7777-4777-8777-777777777777",
   otherOrgJob: "77777777-7777-4777-8777-777777777778",
+  openInvoice: "88888888-8888-4888-8888-888888888881",
+  paidInvoice: "88888888-8888-4888-8888-888888888882",
   missing: "99999999-9999-4999-8999-999999999999",
 };
 
@@ -62,6 +64,8 @@ export function seedRepository(): InMemoryRepository {
     { entity: "quote", id: ids.oldQuote, orgId: ORG, jobId: ids.acceptedJob },
     { entity: "material", id: ids.material, orgId: ORG, jobId: ids.acceptedJob, removed: false },
     { entity: "supplyHouse", id: ids.supplyHouse, orgId: ORG },
+    { entity: "invoice", id: ids.openInvoice, orgId: ORG, jobId: ids.acceptedJob, status: "sent", totalCents: 100000, paidCents: 40000 },
+    { entity: "invoice", id: ids.paidInvoice, orgId: ORG, jobId: ids.acceptedJob, status: "paid", totalCents: 50000, paidCents: 50000 },
     { entity: "client", id: ids.otherOrgClient, orgId: OTHER_ORG },
     {
       entity: "job",
