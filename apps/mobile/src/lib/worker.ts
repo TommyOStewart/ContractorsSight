@@ -59,6 +59,8 @@ export const worker = {
   createCapture: (input: { orgId: string; text: string; targetJobId?: string }) => call<CaptureResult>('/captures', input),
   /** The recording is already uploaded to the `captures` bucket at `audioPath`. */
   createAudioCapture: (input: { orgId: string; audioPath: string }) => call<CaptureResult & { transcript: string }>('/captures/audio', input),
+  /** Photos already uploaded to the `captures` bucket, one path per page. */
+  createImageCapture: (input: { orgId: string; imagePaths: string[] }) => call<CaptureResult & { transcript: string }>('/captures/image', input),
   /** `include`: indexes of the operations to save; omit to save all. */
   approve: (changeSetId: string, include?: number[]) =>
     call<{ ok: true; tempIdMap: Record<string, string> }>(`/change-sets/${changeSetId}/approve`, include ? { include } : {}),

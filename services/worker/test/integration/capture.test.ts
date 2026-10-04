@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from "vitest";
-import { answerQuestion, createAudioCapture, createTextCapture, localDay } from "../../src/capture/captureService";
+import { answerQuestion, createAudioCapture, createImageCapture, createTextCapture, localDay } from "../../src/capture/captureService";
 import { approveChangeSet } from "../../src/commit/changeSetService";
 import { PostgresPlannerData } from "../../src/planner/PostgresPlannerData";
 import type { ChatModel, ChatResponse } from "../../src/planner/types";
@@ -138,7 +138,7 @@ describe("createAudioCapture", () => {
         data,
         timezone: "America/New_York",
         transcriber,
-        downloadAudio: async (_token, p) => {
+        downloadFile: async (_token, p) => {
           downloads.push(p);
           return new Uint8Array([1, 2, 3]);
         },
@@ -161,9 +161,57 @@ describe("createAudioCapture", () => {
     const other = await seedOrg();
     await expect(
       createAudioCapture(
-        { sql, model: scripted([]), data, timezone: "America/New_York", transcriber, downloadAudio: async () => new Uint8Array() },
+        { sql, model: scripted([]), data, timezone: "America/New_York", transcriber, downloadFile: async () => new Uint8Array() },
         { userId: org.userId, orgId: org.orgId, accessToken: "t", audioPath: `${other.orgId}/x.m4a` },
       ),
     ).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+describe("createImageCapture", () => {
+  it("reads every page, keeps them as attachments, and plans from the text", async () => {
+    const org = await seedOrg();
+    const reads: number[] = [];
+    const imageReader = {
+      id: "fake-vision",
+      read: async (images: { bytes: Uint8Array }[]) => {
+        reads.push(images.length);
+        return { text: "FERGUSON #1234\nSB 1/2 COUPLING 4 @ 6.89\nPO: LEAKY WATER HEATER", costUsd: 0 };
+      },
+    };
+    const model = scripted([
+      { text: null, toolCalls: [{ id: "n1", name: "add_note", arguments: JSON.stringify({ jobId: org.jobId, body: "Receipt from Ferguson" }) }], usage },
+      { text: "Noted the receipt.", toolCalls: [], usage },
+    ]);
+    const pages = [`${org.orgId}/${crypto.randomUUID()}.jpg`, `${org.orgId}/${crypto.randomUUID()}.jpg`];
+    const result = await createImageCapture(
+      { sql, model, data, timezone: "America/New_York", imageReader, downloadFile: async () => new Uint8Array([9]) },
+      { userId: org.userId, orgId: org.orgId, accessToken: "t", imagePaths: pages },
+    );
+    expect(reads).toEqual([2]);
+    expect(result.changeSetId).toBeTruthy();
+    expect(model.prompts[0]).toContain("Text read from a photo");
+    const [capture] = await sql`select type, raw_text from captures where id = ${result.captureId}`;
+    expect(capture).toMatchObject({ type: "image" });
+    expect(capture!.rawText).toContain("FERGUSON");
+    const attachments = await sql`select storage_path from attachments where capture_id = ${result.captureId} order by storage_path`;
+    expect(attachments.map((a) => a.storagePath)).toEqual([...pages].sort());
+  });
+
+  it("finishes without a proposal when the photo has no readable text", async () => {
+    const org = await seedOrg();
+    const result = await createImageCapture(
+      {
+        sql,
+        model: scripted([]),
+        data,
+        timezone: "America/New_York",
+        imageReader: { id: "fake", read: async () => ({ text: "", costUsd: 0 }) },
+        downloadFile: async () => new Uint8Array([1]),
+      },
+      { userId: org.userId, orgId: org.orgId, accessToken: "t", imagePaths: [`${org.orgId}/blank.jpg`] },
+    );
+    expect(result.changeSetId).toBeNull();
+    expect(result.summary).toMatch(/couldn't read/);
   });
 });

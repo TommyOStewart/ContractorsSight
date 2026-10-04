@@ -22,14 +22,14 @@ pnpm workspaces, with `nodeLinker: hoisted` (set in `pnpm-workspace.yaml`) becau
  ─────                         ─────────────────────                           ─────
  Capture ──upload──▶ captures ──▶ text extraction ──▶ LLM planner ──▶ validate ──▶ change_sets (pending) ──▶ review diff
  (audio | image | text)          (speech-to-text;      (tool calls via  │                                       │
-                                  OCR not built yet)    OpenRouter)     └─ issues fed back once for repair      ▼
+                                  photo reading)       OpenRouter)     └─ issues fed back once for repair      ▼
                                                                                                    approve ──▶ worker /approve
                                                                                                                re-validate, resolve temp IDs,
                                                                                                                apply ops, write audit_events
 ```
 
 1. **Capture.** Voice, image, and typed text are all a single `Capture` (`captures.type` = `audio | image | text`). Source files go to the private `captures` storage bucket under `<org_id>/…` and are linked through `attachments.capture_id`. There is one pipeline, not three.
-2. **Text extraction.** The worker turns the capture into text. Typed text passes through. For audio, the phone uploads the recording to the `captures` bucket, and the worker downloads it with the user's own token (so storage policies apply), then transcribes it through the `Transcriber` interface (`services/worker/src/speech/`, OpenRouter, model set by `TRANSCRIBE_MODEL`). Photos (OCR/vision) are not built yet.
+2. **Text extraction.** The worker turns the capture into text. Typed text passes through. For audio, the phone uploads the recording to the `captures` bucket, and the worker downloads it with the user's own token (so storage policies apply), then transcribes it through the `Transcriber` interface (`services/worker/src/speech/`, OpenRouter, model set by `TRANSCRIBE_MODEL`). For photos, each page is uploaded the same way and read into text by a vision model through the `ImageReader` interface (`services/worker/src/vision/`, model set by `READ_IMAGE_MODEL`).
 3. **Planning.** `runPlanner` (`services/worker/src/planner/`) gives the model the text, records found by pre-searching the text, the org glossary (`glossary_terms`, e.g. "SB" = SharkBite fitting), the supply houses, and the tool definitions. Lookup tools (`find_client`, `find_job`) run immediately against Postgres; every other tool call is schema-checked and collected into a `ChangeSetDraft`, which is validated with one repair attempt. The model is set by `PLANNER_MODEL` (OpenRouter); `services/worker/evals/` compares models on 40 graded captures. If the model asks a question (`flag_ambiguity`), the contractor's answer re-plans the same capture (`capture_answers`).
 4. **Validation.** `validateChangeSet` in `packages/shared` (details below).
 5. **Review.** The draft is stored in `change_sets` with status `pending`, along with any validation issues. The phone shows it as a diff.
@@ -157,7 +157,6 @@ The RLS helper functions (`is_org_member`, `has_org_role`) are `security definer
 
 ## Not built yet (intentionally)
 
-- Photo capture (handwritten notes, receipts).
 - Invoices, payments, and business expenses (needed for the dashboard and tax views).
 - Editing records directly in the app (today every change goes through a capture).
 - Inviting teammates to a company.
