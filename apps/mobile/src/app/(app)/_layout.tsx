@@ -9,6 +9,7 @@ export default function AppLayout() {
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="type" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="record" options={{ presentation: 'fullScreenModal', gestureEnabled: false }} />
         <Stack.Screen name="review/[id]" />
         <Stack.Screen name="account" options={{ presentation: 'modal' }} />
       </Stack>

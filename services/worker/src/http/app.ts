@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { answerQuestion, createTextCapture, type CaptureDeps } from "../capture/captureService";
+import { answerQuestion, createAudioCapture, createTextCapture, type AudioDeps, type CaptureDeps } from "../capture/captureService";
 import { approveChangeSet, ChangeSetError, rejectChangeSet } from "../commit/changeSetService";
 import type { Sql } from "../db/sql";
 
@@ -12,9 +12,11 @@ export interface AppDeps {
   verifyUser: VerifyUser;
   /** Planner wiring; captures are disabled (503) without it. */
   capture?: Omit<CaptureDeps, "sql">;
+  /** Speech-to-text wiring; voice captures are disabled (503) without it. */
+  audio?: AudioDeps;
 }
 
-type Env = { Variables: { userId: string } };
+type Env = { Variables: { userId: string; accessToken: string } };
 
 const uuid = z.uuid();
 
@@ -22,7 +24,7 @@ const uuid = z.uuid();
  * The worker's HTTP API. Every route requires the user's Supabase access token; the worker then
  * acts with database-level access, so each handler checks org membership itself.
  */
-export function createApp({ sql, verifyUser, capture }: AppDeps) {
+export function createApp({ sql, verifyUser, capture, audio }: AppDeps) {
   const app = new Hono<Env>();
 
   app.get("/health", (c) => c.json({ ok: true }));
@@ -33,6 +35,7 @@ export function createApp({ sql, verifyUser, capture }: AppDeps) {
     const userId = token ? await verifyUser(token) : null;
     if (!userId) return c.json({ error: "Not signed in." }, 401);
     c.set("userId", userId);
+    c.set("accessToken", token!);
     await next();
   });
 
@@ -60,6 +63,19 @@ export function createApp({ sql, verifyUser, capture }: AppDeps) {
     if (!body.success) return c.json({ error: "Invalid selection." }, 400);
     const result = await approveChangeSet(sql, { changeSetId: id.data, userId: c.get("userId"), include: body.data.include });
     return result.ok ? c.json(result) : c.json(result, 409);
+  });
+
+  const audioBody = z.object({ orgId: uuid, audioPath: z.string().min(1).max(500) });
+
+  app.post("/captures/audio", async (c) => {
+    if (!capture || !audio) return c.json({ error: "Voice notes aren't configured on this worker." }, 503);
+    const body = audioBody.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json({ error: "Invalid recording." }, 400);
+    const result = await createAudioCapture(
+      { sql, ...capture, ...audio },
+      { userId: c.get("userId"), accessToken: c.get("accessToken"), ...body.data },
+    );
+    return c.json(result, 201);
   });
 
   app.post("/change-sets/:id/answer", async (c) => {
