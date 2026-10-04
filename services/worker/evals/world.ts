@@ -193,10 +193,20 @@ export function evalRepository(): InMemoryRepository {
   return new InMemoryRepository(snapshots);
 }
 
-const words = (s: string) => s.toLowerCase().split(/[^a-z0-9']+/).filter((w) => w.length > 1);
+// Roughly what Postgres trigram search will feel like: meaningful words match, noise doesn't.
+const STOP_WORDS = new Set(["st", "ave", "rd", "ln", "ct", "the", "and", "job", "for", "new"]);
+const words = (s: string) =>
+  s
+    .toLowerCase()
+    .split(/[^a-z0-9']+/)
+    .filter((w) => w.length >= 3 && !STOP_WORDS.has(w) && !/^\d+$/.test(w));
+const digits = (s: string) => s.replace(/\D/g, "");
 function score(query: string, haystack: string): number {
   const hay = haystack.toLowerCase();
-  return words(query).filter((w) => hay.includes(w)).length;
+  const wordHits = words(query).filter((w) => hay.includes(w)).length;
+  // Phone numbers match only as a whole (7+ digits), not on shared prefixes like "555".
+  const phoneHits = (query.match(/[\d-]{7,}/g) ?? []).filter((p) => digits(hay).includes(digits(p))).length;
+  return wordHits + phoneHits;
 }
 
 const clientName = (clientId: string) => clients.find((c) => c.id === clientId)!.name;

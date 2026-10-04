@@ -1,4 +1,5 @@
 import type { ToolArgs } from "@contractorsight/shared";
+import type { SchemaStyle } from "./schemaStyle";
 
 /**
  * Provider-neutral chat types, in the OpenAI chat-completions shape that OpenRouter speaks.
@@ -28,6 +29,8 @@ export interface Usage {
   cachedInputTokens: number;
   outputTokens: number;
   reasoningTokens: number;
+  /** Time spent in successful model requests, excluding client-side pacing and retry waits. */
+  modelMs: number;
 }
 
 export interface ChatResponse {
@@ -38,6 +41,8 @@ export interface ChatResponse {
 
 export interface ChatModel {
   readonly id: string;
+  /** How this model's provider wants optional tool parameters expressed. */
+  readonly schemaStyle: SchemaStyle;
   complete(input: { system: string; messages: ChatMessage[]; tools: ToolSpec[] }): Promise<ChatResponse>;
 }
 

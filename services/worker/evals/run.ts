@@ -61,6 +61,7 @@ interface RunRecord {
   cachedInputTokens: number;
   outputTokens: number;
   reasoningTokens: number;
+  modelMs: number;
   operations: Op[];
   finalText: string | null;
   error?: string;
@@ -121,6 +122,7 @@ async function runOne(model: string, testCase: EvalCase): Promise<RunRecord | nu
       cachedInputTokens: 0,
       outputTokens: 0,
       reasoningTokens: 0,
+      modelMs: 0,
       operations: [],
       finalText: null,
       error: error instanceof Error ? error.message : String(error),
@@ -162,7 +164,7 @@ const rows = models.map((model) => {
     validFirstTry: ok.filter((r) => r.validFirstTry).length,
     errors: rs.filter((r) => r.error).length,
     costPerCapture: avg(ok.map((r) => r.costUsd)),
-    latency: avg(ok.map((r) => r.latencyMs)) / 1000,
+    latency: avg(ok.map((r) => r.modelMs)) / 1000,
     turns: avg(ok.map((r) => r.turns)),
     cacheShare: ok.reduce((a, r) => a + r.cachedInputTokens, 0) / Math.max(1, ok.reduce((a, r) => a + r.inputTokens, 0)),
   };
@@ -171,7 +173,7 @@ const rows = models.map((model) => {
 const lines: string[] = [];
 lines.push(`# Planner eval: ${new Date().toISOString()}`, "");
 lines.push(`${cases.length} cases, reasoning effort \`${effort}\`, total spend **$${spent.toFixed(2)}**${stoppedForBudget ? " (stopped at budget)" : ""}.`, "");
-lines.push("| Model | Passed | Valid first try | Errors | $/capture | $/month (220) | Avg latency | Avg turns | Cached input |");
+lines.push("| Model | Passed | Valid first try | Errors | $/capture | $/month (220) | Avg model time | Avg turns | Cached input |");
 lines.push("|---|---|---|---|---|---|---|---|---|");
 for (const r of [...rows].sort((a, b) => b.passed - a.passed || a.costPerCapture - b.costPerCapture)) {
   lines.push(

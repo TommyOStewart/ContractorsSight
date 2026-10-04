@@ -1,3 +1,4 @@
+import type { SchemaStyle } from "./schemaStyle";
 import type { ChatMessage, ChatModel, ChatResponse, ToolSpec } from "./types";
 
 export type ReasoningEffort = "minimal" | "low" | "medium" | "high";
@@ -10,6 +11,8 @@ export interface OpenRouterOptions {
   maxTokens?: number;
   /** Retries for 429 / 5xx / network errors. */
   maxRetries?: number;
+  /** Max requests per minute to this model from this process (OpenRouter limits new accounts to 20). */
+  requestsPerMinute?: number;
   fetchImpl?: typeof fetch;
 }
 
@@ -54,9 +57,11 @@ function toWire(messages: ChatMessage[]) {
 
 export class OpenRouterChatModel implements ChatModel {
   readonly id: string;
+  readonly schemaStyle: SchemaStyle;
 
   constructor(private readonly options: OpenRouterOptions) {
     this.id = options.model;
+    this.schemaStyle = options.model.startsWith("openai/") ? "nullable-optionals" : "standard";
   }
 
   async complete(input: { system: string; messages: ChatMessage[]; tools: ToolSpec[] }): Promise<ChatResponse> {
@@ -74,7 +79,7 @@ export class OpenRouterChatModel implements ChatModel {
       max_tokens: this.options.maxTokens ?? 16000,
     };
 
-    const data = await this.post(body);
+    const { data, ms } = await this.post(body);
     const choice = data.choices?.[0];
     if (!choice) throw new Error(`OpenRouter returned no choices: ${data.error?.message ?? "unknown error"}`);
 
@@ -87,15 +92,19 @@ export class OpenRouterChatModel implements ChatModel {
         cachedInputTokens: data.usage?.prompt_tokens_details?.cached_tokens ?? 0,
         outputTokens: data.usage?.completion_tokens ?? 0,
         reasoningTokens: data.usage?.completion_tokens_details?.reasoning_tokens ?? 0,
+        modelMs: ms,
       },
     };
   }
 
-  private async post(body: unknown): Promise<WireResponse> {
+  private async post(body: unknown): Promise<{ data: WireResponse; ms: number }> {
     const doFetch = this.options.fetchImpl ?? fetch;
-    const maxRetries = this.options.maxRetries ?? 2;
+    const maxRetries = this.options.maxRetries ?? 5;
     for (let attempt = 0; ; attempt++) {
       let status = 0;
+      let retryAfterMs = 0;
+      await waitForSlot(this.options.model, this.options.requestsPerMinute ?? 15);
+      const started = Date.now();
       try {
         const res = await doFetch(ENDPOINT, {
           method: "POST",
@@ -107,16 +116,29 @@ export class OpenRouterChatModel implements ChatModel {
           body: JSON.stringify(body),
         });
         status = res.status;
+        retryAfterMs = Number(res.headers.get("retry-after") ?? 0) * 1000;
         const data = (await res.json()) as WireResponse;
-        if (res.ok && !data.error) return data;
+        if (res.ok && !data.error) return { data, ms: Date.now() - started };
         if (status !== 429 && status < 500) throw new NonRetryableError(`OpenRouter ${status}: ${data.error?.message ?? res.statusText}`);
         if (attempt >= maxRetries) throw new Error(`OpenRouter ${status}: ${data.error?.message ?? res.statusText}`);
       } catch (error) {
         if (error instanceof NonRetryableError || attempt >= maxRetries) throw error;
       }
-      await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
+      // Rate limits clear on a per-minute window; back off long enough to actually get through.
+      const backoff = status === 429 ? Math.max(retryAfterMs, 10_000 * 2 ** attempt) : 1000 * 2 ** attempt;
+      await new Promise((r) => setTimeout(r, Math.min(backoff, 120_000)));
     }
   }
 }
 
 class NonRetryableError extends Error {}
+
+/** Spaces out requests per model across every client instance in this process. */
+const nextSlot = new Map<string, number>();
+async function waitForSlot(model: string, requestsPerMinute: number) {
+  const interval = 60_000 / requestsPerMinute;
+  const now = Date.now();
+  const slot = Math.max(now, nextSlot.get(model) ?? 0);
+  nextSlot.set(model, slot + interval);
+  if (slot > now) await new Promise((r) => setTimeout(r, slot - now));
+}

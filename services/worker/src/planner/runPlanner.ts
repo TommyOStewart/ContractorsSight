@@ -8,6 +8,7 @@ import {
   type ValidationIssue,
   type ValidationRepository,
 } from "@contractorsight/shared";
+import { adaptSchema, stripNulls, type SchemaStyle } from "./schemaStyle";
 import type { ChatMessage, ChatModel, LookupExecutor, ToolSpec, Usage } from "./types";
 
 export interface PlannerInput {
@@ -39,7 +40,8 @@ export interface PlannerResult {
   stoppedEarly?: "max_turns";
 }
 
-const TOOL_SPECS: ToolSpec[] = toLlmToolSchemas().map((t) => ({ name: t.name, description: t.description, parameters: t.input_schema }));
+const toolSpecs = (style: SchemaStyle): ToolSpec[] =>
+  toLlmToolSchemas().map((t) => ({ name: t.name, description: t.description, parameters: adaptSchema(t.input_schema, style) }));
 const LOOKUP_NAMES = new Set<string>(TOOLS.filter((t) => t.kind === "lookup").map((t) => t.name));
 
 const addUsage = (a: Usage, b: Usage): Usage => ({
@@ -48,8 +50,9 @@ const addUsage = (a: Usage, b: Usage): Usage => ({
   cachedInputTokens: a.cachedInputTokens + b.cachedInputTokens,
   outputTokens: a.outputTokens + b.outputTokens,
   reasoningTokens: a.reasoningTokens + b.reasoningTokens,
+  modelMs: a.modelMs + b.modelMs,
 });
-const ZERO: Usage = { costUsd: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, reasoningTokens: 0 };
+const ZERO: Usage = { costUsd: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, reasoningTokens: 0, modelMs: 0 };
 
 /**
  * The LLM step of the capture pipeline. The model runs lookups (executed immediately, read-only)
@@ -61,6 +64,7 @@ export async function runPlanner(input: PlannerInput): Promise<PlannerResult> {
   const maxTurns = input.maxTurns ?? 8;
   const maxRepairs = input.maxRepairs ?? 1;
   const messages: ChatMessage[] = [{ role: "user", content: input.captureMessage }];
+  const tools = toolSpecs(input.model.schemaStyle);
   let usage = ZERO;
   let turns = 0;
   let finalText: string | null = null;
@@ -71,7 +75,7 @@ export async function runPlanner(input: PlannerInput): Promise<PlannerResult> {
     let finished = false;
 
     for (let turn = 0; turn < maxTurns; turn++) {
-      const response = await input.model.complete({ system: input.system, messages, tools: TOOL_SPECS });
+      const response = await input.model.complete({ system: input.system, messages, tools });
       usage = addUsage(usage, response.usage);
       turns++;
       messages.push({ role: "assistant", content: response.text, toolCalls: response.toolCalls });
@@ -130,7 +134,8 @@ async function handleToolCall(
 
   let args: unknown;
   try {
-    args = rawArgs.trim() ? JSON.parse(rawArgs) : {};
+    // null means "not provided" (see schemaStyle.ts); drop it so it validates like an omitted field.
+    args = stripNulls(rawArgs.trim() ? JSON.parse(rawArgs) : {});
   } catch {
     return JSON.stringify({ error: "Arguments were not valid JSON. Call the tool again." });
   }
