@@ -15,7 +15,7 @@ import { OpenRouterChatModel, type ReasoningEffort } from "../src/planner/openRo
 import { buildCaptureMessage, buildSystemPrompt } from "../src/planner/prompt";
 import { runPlanner, type PlannerResult } from "../src/planner/runPlanner";
 import { CASES, type EvalCase, type Op } from "./cases";
-import { evalLookups, evalRepository, ORG_ID, promptContext } from "./world";
+import { evalCandidates, evalLookups, evalRepository, ORG_ID, promptContext } from "./world";
 
 const DEFAULT_MODELS = [
   "anthropic/claude-sonnet-5.5",
@@ -33,6 +33,8 @@ const { values } = parseArgs({
     budget: { type: "string" },
     effort: { type: "string", default: "medium" },
     concurrency: { type: "string", default: "4" },
+    /** Search the capture text up front and include matching records in the message. */
+    presearch: { type: "boolean", default: false },
   },
 });
 
@@ -86,7 +88,12 @@ async function runOne(model: string, testCase: EvalCase): Promise<RunRecord | nu
       orgId: ORG_ID,
       captureId: "00000000-0000-4000-8000-0000000000cc",
       system,
-      captureMessage: buildCaptureMessage({ text: testCase.text, captureType: testCase.captureType, targetJob: testCase.targetJob }),
+      captureMessage: buildCaptureMessage({
+        text: testCase.text,
+        captureType: testCase.captureType,
+        targetJob: testCase.targetJob,
+        candidates: values.presearch ? await evalCandidates.find(ORG_ID, testCase.text) : undefined,
+      }),
     });
     spent += result.usage.costUsd;
     const ops = result.draft.operations as Op[];
@@ -139,7 +146,8 @@ async function pool<T>(items: T[], size: number, fn: (item: T) => Promise<void>)
 
 const records: RunRecord[] = [];
 const jobs = models.flatMap((model) => cases.map((c) => ({ model, c })));
-console.log(`Running ${cases.length} cases × ${models.length} models (effort ${effort}), budget $${budget.toFixed(2)}`);
+const presearchLabel = values.presearch ? "on" : "off";
+console.log(`Running ${cases.length} cases × ${models.length} models (effort ${effort}, pre-search ${presearchLabel}), budget $${budget.toFixed(2)}`);
 
 await pool(jobs, Number(values.concurrency), async ({ model, c }) => {
   const record = await runOne(model, c);
@@ -172,7 +180,7 @@ const rows = models.map((model) => {
 
 const lines: string[] = [];
 lines.push(`# Planner eval: ${new Date().toISOString()}`, "");
-lines.push(`${cases.length} cases, reasoning effort \`${effort}\`, total spend **$${spent.toFixed(2)}**${stoppedForBudget ? " (stopped at budget)" : ""}.`, "");
+lines.push(`${cases.length} cases, reasoning effort \`${effort}\`, pre-search **${presearchLabel}**, total spend **$${spent.toFixed(2)}**${stoppedForBudget ? " (stopped at budget)" : ""}.`, "");
 lines.push("| Model | Passed | Valid first try | Errors | $/capture | $/month (220) | Avg model time | Avg turns | Cached input |");
 lines.push("|---|---|---|---|---|---|---|---|---|");
 for (const r of [...rows].sort((a, b) => b.passed - a.passed || a.costPerCapture - b.costPerCapture)) {
@@ -196,6 +204,6 @@ for (const model of models) {
 const here = dirname(fileURLToPath(import.meta.url));
 const outDir = resolve(here, "results", new Date().toISOString().replace(/[:.]/g, "-"));
 mkdirSync(outDir, { recursive: true });
-writeFileSync(resolve(outDir, "results.json"), JSON.stringify({ models, cases: cases.map((c) => c.id), effort, spent, records }, null, 2));
+writeFileSync(resolve(outDir, "results.json"), JSON.stringify({ models, cases: cases.map((c) => c.id), effort, presearch: values.presearch, spent, records }, null, 2));
 writeFileSync(resolve(outDir, "summary.md"), lines.join("\n"));
 console.log(`\n${lines.join("\n")}\n\nWrote ${outDir}`);

@@ -1,6 +1,6 @@
 import type { EntitySnapshot, JobStatus, ToolArgs } from "@contractorsight/shared";
 import { InMemoryRepository } from "@contractorsight/shared/testing";
-import type { GlossaryEntry, LookupExecutor } from "../src/planner/types";
+import type { CandidateFinder, GlossaryEntry, LookupExecutor } from "../src/planner/types";
 
 // A small, fixed plumbing business for the planner eval. IDs are readable on purpose so failures
 // are easy to read in the results.
@@ -198,6 +198,8 @@ const STOP_WORDS = new Set(["st", "ave", "rd", "ln", "ct", "the", "and", "job", 
 const words = (s: string) =>
   s
     .toLowerCase()
+    // "Maria's" should match "Maria"; keep inner apostrophes ("O'Neil").
+    .replace(/['’]s\b/g, "")
     .split(/[^a-z0-9']+/)
     .filter((w) => w.length >= 3 && !STOP_WORDS.has(w) && !/^\d+$/.test(w));
 const digits = (s: string) => s.replace(/\D/g, "");
@@ -209,31 +211,47 @@ function score(query: string, haystack: string): number {
   return wordHits + phoneHits;
 }
 
+
 const clientName = (clientId: string) => clients.find((c) => c.id === clientId)!.name;
 const siteOf = (siteId: string) => sites.find((s) => s.id === siteId)!;
+const sitesOf = (clientId: string) => sites.filter((s) => s.clientId === clientId);
+
+const clientSearchText = (c: Client) =>
+  [c.name, c.phone, c.email ?? "", ...sitesOf(c.id).map((s) => `${s.label ?? ""} ${s.address}`)].join(" ");
+const jobSearchText = (j: Job) => `${j.title} ${j.jobType} ${clientName(j.clientId)} ${siteOf(j.siteId).address} ${siteOf(j.siteId).label ?? ""}`;
+
+// Result shapes, shared by the lookup tools and pre-search so the model sees the same data either way.
+const clientView = (c: Client) => ({
+  id: c.id,
+  name: c.name,
+  phone: c.phone,
+  email: c.email ?? null,
+  sites: sitesOf(c.id).map((s) => ({ id: s.id, label: s.label ?? null, address: s.address })),
+});
+const jobView = (j: Job) => ({
+  id: j.id,
+  title: j.title,
+  jobType: j.jobType,
+  status: j.status,
+  client: { id: j.clientId, name: clientName(j.clientId) },
+  site: { id: j.siteId, address: siteOf(j.siteId).address, label: siteOf(j.siteId).label ?? null },
+  scheduledStart: j.scheduledStart,
+  scheduledEnd: j.scheduledEnd ?? null,
+  latestQuote: j.quote ? { id: j.quote.id, version: j.quote.version, lineItems: j.quote.lineItems } : null,
+  materials: materials
+    .filter((m) => m.jobId === j.id)
+    .map((m) => ({ id: m.id, description: m.description, quantity: m.quantity, unit: m.unit ?? null, status: m.status })),
+});
 
 /** Lookups over the fixture, shaped like the production results will be. */
 export const evalLookups: LookupExecutor = {
   async findClients(_orgId, args: ToolArgs<"find_client">) {
     return clients
-      .map((c) => {
-        const clientSites = sites.filter((s) => s.clientId === c.id);
-        return {
-          c,
-          clientSites,
-          s: score(args.query, [c.name, c.phone, c.email ?? "", ...clientSites.map((s) => `${s.label ?? ""} ${s.address}`)].join(" ")),
-        };
-      })
+      .map((c) => ({ c, s: score(args.query, clientSearchText(c)) }))
       .filter((x) => x.s > 0)
       .sort((a, b) => b.s - a.s)
       .slice(0, args.limit)
-      .map(({ c, clientSites }) => ({
-        id: c.id,
-        name: c.name,
-        phone: c.phone,
-        email: c.email ?? null,
-        sites: clientSites.map((s) => ({ id: s.id, label: s.label ?? null, address: s.address })),
-      }));
+      .map(({ c }) => clientView(c));
   },
 
   async findJobs(_orgId, args: ToolArgs<"find_job">) {
@@ -241,24 +259,26 @@ export const evalLookups: LookupExecutor = {
       .filter((j) => !args.clientId || j.clientId === args.clientId)
       .filter((j) => !args.statuses || args.statuses.includes(j.status))
       .filter((j) => !args.jobType || j.jobType.includes(args.jobType))
-      .map((j) => ({ j, s: args.query ? score(args.query, `${j.title} ${j.jobType} ${clientName(j.clientId)} ${siteOf(j.siteId).address} ${siteOf(j.siteId).label ?? ""}`) : 1 }))
+      .map((j) => ({ j, s: args.query ? score(args.query, jobSearchText(j)) : 1 }))
       .filter((x) => x.s > 0)
       .sort((a, b) => b.s - a.s)
       .slice(0, args.limit)
-      .map(({ j }) => ({
-        id: j.id,
-        title: j.title,
-        jobType: j.jobType,
-        status: j.status,
-        client: { id: j.clientId, name: clientName(j.clientId) },
-        site: { id: j.siteId, address: siteOf(j.siteId).address, label: siteOf(j.siteId).label ?? null },
-        scheduledStart: j.scheduledStart,
-        scheduledEnd: j.scheduledEnd ?? null,
-        latestQuote: j.quote ? { id: j.quote.id, version: j.quote.version, lineItems: j.quote.lineItems } : null,
-        materials: materials
-          .filter((m) => m.jobId === j.id)
-          .map((m) => ({ id: m.id, description: m.description, quantity: m.quantity, unit: m.unit ?? null, status: m.status })),
-      }));
+      .map(({ j }) => jobView(j));
+  },
+};
+
+/**
+ * Pre-search over the fixture: clients whose name, phone, or address appears in the capture, all
+ * of their jobs, plus jobs whose title shares two or more words with the capture.
+ */
+export const evalCandidates: CandidateFinder = {
+  async find(_orgId, text) {
+    const matchedClients = clients.filter((c) => score(text, clientSearchText(c)) > 0).slice(0, 5);
+    const clientIds = new Set(matchedClients.map((c) => c.id));
+    const matchedJobs = jobs
+      .filter((j) => clientIds.has(j.clientId) || score(text, `${j.title} ${j.jobType}`) >= 2)
+      .slice(0, 10);
+    return { clients: matchedClients.map(clientView), jobs: matchedJobs.map(jobView) };
   },
 };
 

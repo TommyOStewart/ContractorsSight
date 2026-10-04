@@ -112,3 +112,26 @@ describe("eval lookups", () => {
     expect(await evalLookups.findClients(ORG_ID, { query: "Jeb", limit: 5 })).toHaveLength(2);
   });
 });
+
+describe("pre-search", () => {
+  it("finds clients by possessive names and includes all their jobs", async () => {
+    const { evalCandidates } = await import("../../evals/world");
+    const found = await evalCandidates.find(ORG_ID, "Add 2 SB couplings to Maria's repipe");
+    expect((found.clients as { id: string }[]).map((c) => c.id)).toEqual([ids.maria]);
+    expect((found.jobs as { id: string }[]).map((j) => j.id).sort()).toEqual([ids.mariaRepipe, ids.mariaRentalToilet].sort());
+  });
+
+  it("surfaces both Jebs for an ambiguous first name", async () => {
+    const { evalCandidates } = await import("../../evals/world");
+    const found = await evalCandidates.find(ORG_ID, "Jeb wants us to look at a leak");
+    expect(found.clients).toHaveLength(2);
+  });
+
+  it("puts candidates in the capture message, and says so when there are none", () => {
+    const withRecords = buildCaptureMessage({ text: "x", captureType: "text", candidates: { clients: [{ id: "c" }], jobs: [] } });
+    expect(withRecords).toContain("<records>");
+    const empty = buildCaptureMessage({ text: "x", captureType: "text", candidates: { clients: [], jobs: [] } });
+    expect(empty).toContain("found no existing clients or jobs");
+    expect(buildCaptureMessage({ text: "x", captureType: "text" })).not.toContain("records");
+  });
+});

@@ -46,6 +46,17 @@ export interface ChatModel {
   complete(input: { system: string; messages: ChatMessage[]; tools: ToolSpec[] }): Promise<ChatResponse>;
 }
 
+/** Records found by searching the capture text before the model runs (pre-search). */
+export interface Candidates {
+  clients: unknown[];
+  jobs: unknown[];
+}
+
+/** Searches the capture text up front so the model can usually act without lookup round trips. */
+export interface CandidateFinder {
+  find(orgId: string, captureText: string): Promise<Candidates>;
+}
+
 /** Read-only lookups the model can run while planning. Always scoped to one org. */
 export interface LookupExecutor {
   findClients(orgId: string, args: ToolArgs<"find_client">): Promise<unknown[]>;
