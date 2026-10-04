@@ -41,17 +41,87 @@ export function localDay(now: Date, timeZone: string): { today: string; utcOffse
   return { today: `${get("weekday")}, ${get("year")}-${get("month")}-${get("day")}`, utcOffset: offset };
 }
 
+async function requireMember(sql: Sql, orgId: string, userId: string) {
+  const [member] = await sql`select 1 from org_members where org_id = ${orgId} and user_id = ${userId}`;
+  if (!member) throw new ChangeSetError(404, "Company not found.");
+}
+
 /**
- * Typed-text capture → pending ChangeSet. Synchronous for now (a few seconds); audio and image
- * captures will run the same steps after transcription/OCR, from a queue.
+ * Runs the planner for a capture and stores the result as a pending ChangeSet. `answers` carries
+ * the contractor's replies to earlier questions about the same capture.
+ */
+async function planCapture(
+  deps: CaptureDeps,
+  input: {
+    captureId: string;
+    captureType: "audio" | "image" | "text";
+    orgId: string;
+    text: string;
+    targetJob?: { id: string; title: string };
+    answers?: { question: string; answer: string }[];
+  },
+): Promise<CaptureResult> {
+  const { sql } = deps;
+  const { captureId } = input;
+  const context = await deps.data.promptContext(input.orgId);
+  const { today, utcOffset } = localDay(deps.now?.() ?? new Date(), deps.timezone);
+  const answers = input.answers?.length
+    ? `\n\nThe contractor answered your earlier questions about this capture:\n${input.answers.map((a) => `- Q: ${a.question}\n  A: ${a.answer}`).join("\n")}\nUse these answers; don't ask them again.`
+    : "";
+
+  const result = await runPlanner({
+    model: deps.model,
+    lookups: deps.data,
+    repository: new PostgresValidationRepository(sql),
+    orgId: input.orgId,
+    captureId,
+    system: buildSystemPrompt({ ...context, today, timezone: deps.timezone, utcOffset }),
+    captureMessage:
+      buildCaptureMessage({
+        text: input.text,
+        captureType: input.captureType,
+        targetJob: input.targetJob,
+        candidates: await deps.data.find(input.orgId, input.text),
+      }) + answers,
+  });
+  console.log(
+    `capture ${captureId}: ${result.draft.operations.length} ops, ${result.issues.length} issues, ` +
+      `${result.turns} turns, $${result.usage.costUsd.toFixed(4)}, ${(result.usage.modelMs / 1000).toFixed(1)}s (${deps.model.id})`,
+  );
+
+  if (!result.draft.operations.length) {
+    // Nothing to record ("grab coffee filters"): done, no review needed.
+    await sql`update captures set status = 'committed' where id = ${captureId}`;
+    return { captureId, changeSetId: null, summary: result.finalText, issues: [] };
+  }
+
+  const [changeSet] = await sql<{ id: string }[]>`
+    insert into change_sets (org_id, capture_id, operations, base_job_versions, validation_issues)
+    values (
+      ${input.orgId}, ${captureId},
+      ${sql.json(result.draft.operations as postgres.JSONValue)},
+      ${sql.json(result.draft.baseJobVersions)},
+      ${sql.json(result.issues as unknown as postgres.JSONValue)}
+    )
+    returning id`;
+  await sql`update captures set status = 'ready_for_review' where id = ${captureId}`;
+  return { captureId, changeSetId: changeSet!.id, summary: result.finalText, issues: result.issues };
+}
+
+async function failCapture(sql: Sql, captureId: string, error: unknown): Promise<never> {
+  await sql`update captures set status = 'failed', error = ${error instanceof Error ? error.message : String(error)} where id = ${captureId}`;
+  throw error;
+}
+
+/**
+ * Text (typed, or transcribed from audio) → pending ChangeSet. Synchronous for now (a few seconds).
  */
 export async function createTextCapture(
   deps: CaptureDeps,
-  input: { userId: string; orgId: string; text: string; targetJobId?: string },
+  input: { userId: string; orgId: string; text: string; targetJobId?: string; captureType?: "audio" | "text"; captureId?: string },
 ): Promise<CaptureResult> {
   const { sql } = deps;
-  const [member] = await sql`select 1 from org_members where org_id = ${input.orgId} and user_id = ${input.userId}`;
-  if (!member) throw new ChangeSetError(404, "Company not found.");
+  await requireMember(sql, input.orgId, input.userId);
 
   let targetJob: { id: string; title: string } | undefined;
   if (input.targetJobId) {
@@ -60,53 +130,63 @@ export async function createTextCapture(
     targetJob = job;
   }
 
-  const [capture] = await sql<{ id: string }[]>`
-    insert into captures (org_id, created_by, type, raw_text, target_job_id, status)
-    values (${input.orgId}, ${input.userId}, 'text', ${input.text}, ${input.targetJobId ?? null}, 'processing')
-    returning id`;
-  const captureId = capture!.id;
+  const captureType = input.captureType ?? "text";
+  let captureId = input.captureId;
+  if (captureId) {
+    await sql`update captures set raw_text = ${input.text}, status = 'processing' where id = ${captureId} and org_id = ${input.orgId}`;
+  } else {
+    const [capture] = await sql<{ id: string }[]>`
+      insert into captures (org_id, created_by, type, raw_text, target_job_id, status)
+      values (${input.orgId}, ${input.userId}, ${captureType}, ${input.text}, ${input.targetJobId ?? null}, 'processing')
+      returning id`;
+    captureId = capture!.id;
+  }
 
   try {
-    const context = await deps.data.promptContext(input.orgId);
-    const { today, utcOffset } = localDay(deps.now?.() ?? new Date(), deps.timezone);
-    const result = await runPlanner({
-      model: deps.model,
-      lookups: deps.data,
-      repository: new PostgresValidationRepository(sql),
-      orgId: input.orgId,
-      captureId,
-      system: buildSystemPrompt({ ...context, today, timezone: deps.timezone, utcOffset }),
-      captureMessage: buildCaptureMessage({
-        text: input.text,
-        captureType: "text",
-        targetJob,
-        candidates: await deps.data.find(input.orgId, input.text),
-      }),
-    });
-    console.log(
-      `capture ${captureId}: ${result.draft.operations.length} ops, ${result.issues.length} issues, ` +
-        `${result.turns} turns, $${result.usage.costUsd.toFixed(4)}, ${(result.usage.modelMs / 1000).toFixed(1)}s (${deps.model.id})`,
-    );
-
-    if (!result.draft.operations.length) {
-      // Nothing to record ("grab coffee filters"): done, no review needed.
-      await sql`update captures set status = 'committed' where id = ${captureId}`;
-      return { captureId, changeSetId: null, summary: result.finalText, issues: [] };
-    }
-
-    const [changeSet] = await sql<{ id: string }[]>`
-      insert into change_sets (org_id, capture_id, operations, base_job_versions, validation_issues)
-      values (
-        ${input.orgId}, ${captureId},
-        ${sql.json(result.draft.operations as postgres.JSONValue)},
-        ${sql.json(result.draft.baseJobVersions)},
-        ${sql.json(result.issues as unknown as postgres.JSONValue)}
-      )
-      returning id`;
-    await sql`update captures set status = 'ready_for_review' where id = ${captureId}`;
-    return { captureId, changeSetId: changeSet!.id, summary: result.finalText, issues: result.issues };
+    return await planCapture(deps, { captureId, captureType, orgId: input.orgId, text: input.text, targetJob });
   } catch (error) {
-    await sql`update captures set status = 'failed', error = ${error instanceof Error ? error.message : String(error)} where id = ${captureId}`;
-    throw error;
+    return failCapture(sql, captureId, error);
+  }
+}
+
+/**
+ * The contractor answered a question (flag_ambiguity) on a pending ChangeSet: re-plan the same
+ * capture with the answer, replace the old proposal (marked rejected), and return the new one.
+ */
+export async function answerQuestion(
+  deps: CaptureDeps,
+  input: { userId: string; changeSetId: string; question: string; answer: string },
+): Promise<CaptureResult> {
+  const { sql } = deps;
+  const [row] = await sql<{ orgId: string; captureId: string; status: string; type: "audio" | "image" | "text"; rawText: string | null; targetJobId: string | null }[]>`
+    select cs.org_id, cs.capture_id, cs.status, c.type, c.raw_text, c.target_job_id
+    from change_sets cs join captures c on c.id = cs.capture_id
+    where cs.id = ${input.changeSetId}`;
+  if (!row) throw new ChangeSetError(404, "Change set not found.");
+  await requireMember(sql, row.orgId, input.userId);
+  if (row.status !== "pending") throw new ChangeSetError(409, `Change set is already ${row.status}.`);
+
+  // Earlier answers on this capture, so a second question doesn't lose the first answer.
+  const previous = await sql<{ question: string; answer: string }[]>`
+    select question, answer from capture_answers where capture_id = ${row.captureId} order by created_at`;
+  await sql`
+    insert into capture_answers (org_id, capture_id, change_set_id, question, answer, answered_by)
+    values (${row.orgId}, ${row.captureId}, ${input.changeSetId}, ${input.question}, ${input.answer}, ${input.userId})`;
+  await sql`update change_sets set status = 'rejected', reviewed_by = ${input.userId}, reviewed_at = now() where id = ${input.changeSetId}`;
+
+  const targetJob = row.targetJobId
+    ? (await sql<{ id: string; title: string }[]>`select id, title from jobs where id = ${row.targetJobId}`)[0]
+    : undefined;
+  try {
+    return await planCapture(deps, {
+      captureId: row.captureId,
+      captureType: row.type,
+      orgId: row.orgId,
+      text: row.rawText ?? "",
+      targetJob,
+      answers: [...previous, { question: input.question, answer: input.answer }],
+    });
+  } catch (error) {
+    return failCapture(sql, row.captureId, error);
   }
 }

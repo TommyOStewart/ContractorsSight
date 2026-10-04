@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from "vitest";
-import { createTextCapture, localDay } from "../../src/capture/captureService";
+import { answerQuestion, createTextCapture, localDay } from "../../src/capture/captureService";
 import { approveChangeSet } from "../../src/commit/changeSetService";
 import { PostgresPlannerData } from "../../src/planner/PostgresPlannerData";
 import type { ChatModel, ChatResponse } from "../../src/planner/types";
@@ -93,5 +93,29 @@ describe("localDay", () => {
     expect(localDay(new Date("2026-10-05T12:00:00Z"), "America/Chicago")).toEqual({ today: "Monday, 2026-10-05", utcOffset: "-05:00" });
     expect(localDay(new Date("2026-10-05T03:00:00Z"), "America/Chicago").today).toBe("Sunday, 2026-10-04");
     expect(localDay(new Date("2026-01-05T12:00:00Z"), "UTC").utcOffset).toBe("+00:00");
+  });
+});
+
+describe("answering a question", () => {
+  it("re-plans the capture with the answer and replaces the proposal", async () => {
+    const org = await seedOrg();
+    const model = scripted([
+      { text: null, toolCalls: [{ id: "q1", name: "flag_ambiguity", arguments: JSON.stringify({ question: "Which job?", about: "job" }) }], usage },
+      { text: "Asked which job.", toolCalls: [], usage },
+      { text: null, toolCalls: [{ id: "n1", name: "add_note", arguments: JSON.stringify({ jobId: org.jobId, body: "Leaking again" }) }], usage },
+      { text: "Added a note.", toolCalls: [], usage },
+    ]);
+    const deps = { sql, model, data, timezone: "America/New_York" };
+    const first = await createTextCapture(deps, { userId: org.userId, orgId: org.orgId, text: "It's leaking again" });
+
+    const second = await answerQuestion(deps, { userId: org.userId, changeSetId: first.changeSetId!, question: "Which job?", answer: "Leaky water heater (Jeb Henderson)" });
+    expect(second.captureId).toBe(first.captureId);
+    expect(second.changeSetId).not.toBe(first.changeSetId);
+    expect(model.prompts[2]).toContain("A: Leaky water heater (Jeb Henderson)");
+
+    const rows = await sql`select id, status from change_sets where capture_id = ${first.captureId} order by created_at`;
+    expect(rows.map((r) => r.status)).toEqual(["rejected", "pending"]);
+    const [answer] = await sql`select question, answer from capture_answers where capture_id = ${first.captureId}`;
+    expect(answer).toMatchObject({ question: "Which job?", answer: "Leaky water heater (Jeb Henderson)" });
   });
 });

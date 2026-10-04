@@ -1,17 +1,30 @@
+import { Barlow_400Regular, Barlow_500Medium, Barlow_600SemiBold, Barlow_700Bold } from '@expo-google-fonts/barlow';
+import { BarlowCondensed_700Bold, BarlowCondensed_800ExtraBold } from '@expo-google-fonts/barlow-condensed';
+import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { SessionProvider, useSession } from '../auth/SessionProvider';
+import { colors } from '../ui/theme';
 
-// Keep the splash screen up until we know whether the user is signed in.
+// Keep the splash screen up until fonts are loaded and we know whether the user is signed in.
 void SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
+  const [fontsLoaded, fontError] = useFonts({
+    Barlow_400Regular,
+    Barlow_500Medium,
+    Barlow_600SemiBold,
+    Barlow_700Bold,
+    BarlowCondensed_700Bold,
+    BarlowCondensed_800ExtraBold,
+  });
+
   return (
     <SessionProvider>
-      <StatusBar style="dark" />
-      <RootNavigator />
+      <StatusBar style="light" />
+      <RootNavigator fontsReady={fontsLoaded || !!fontError} />
     </SessionProvider>
   );
 }
@@ -21,18 +34,19 @@ export default function RootLayout() {
  * signed out → sign-in; signed in with no company → create-company; otherwise → the app.
  * Protected routes redirect automatically when the state changes (sign in, sign out, company created).
  */
-function RootNavigator() {
+function RootNavigator({ fontsReady }: { fontsReady: boolean }) {
   const { session, memberships, isLoading } = useSession();
+  const ready = fontsReady && !isLoading;
   useEffect(() => {
-    if (!isLoading) void SplashScreen.hideAsync();
-  }, [isLoading]);
-  if (isLoading) return null;
+    if (ready) void SplashScreen.hideAsync();
+  }, [ready]);
+  if (!ready) return null;
 
   const signedIn = session !== null;
   const hasCompany = memberships.length > 0;
 
   return (
-    <Stack screenOptions={{ headerShown: false }}>
+    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}>
       <Stack.Protected guard={!signedIn}>
         <Stack.Screen name="sign-in" />
       </Stack.Protected>

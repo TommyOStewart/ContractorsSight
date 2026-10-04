@@ -57,12 +57,23 @@ async function lockForReview(tx: Tx, changeSetId: string, userId: string): Promi
  * If re-validation fails (e.g. a job changed since the proposal), nothing is applied; the issues
  * are saved on the ChangeSet and returned so the app can show them.
  */
-export async function approveChangeSet(sql: Sql, input: { changeSetId: string; userId: string }): Promise<ApproveResult> {
+export async function approveChangeSet(
+  sql: Sql,
+  input: {
+    changeSetId: string;
+    userId: string;
+    /** Indexes of the operations the reviewer kept ticked; omit to approve all. Re-validated as a set. */
+    include?: number[];
+  },
+): Promise<ApproveResult> {
   return sql.begin(async (tx) => {
     const changeSet = await lockForReview(tx, input.changeSetId, input.userId);
 
+    const allOperations = Array.isArray(changeSet.operations) ? (changeSet.operations as unknown[]) : [];
+    const kept = input.include ? allOperations.filter((_, i) => input.include!.includes(i)) : allOperations;
+    if (!kept.length) throw new ChangeSetError(409, "Nothing selected to save.");
     const validation = await validateChangeSet(
-      { captureId: changeSet.captureId, baseJobVersions: changeSet.baseJobVersions, operations: changeSet.operations },
+      { captureId: changeSet.captureId, baseJobVersions: changeSet.baseJobVersions, operations: kept },
       { orgId: changeSet.orgId, repository: new PostgresValidationRepository(tx, { lockJobs: true }) },
     );
     if (!validation.ok) {

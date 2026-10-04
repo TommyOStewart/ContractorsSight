@@ -1,19 +1,17 @@
 import { Stack } from 'expo-router';
-import { colors } from '../../ui';
+import { PendingProvider } from '../../data/PendingProvider';
+import { colors } from '../../ui/theme';
 
-// Screens for signed-in users who belong to a company.
+// Screens for signed-in users who belong to a company: the tabs, plus full-screen steps on top.
 export default function AppLayout() {
   return (
-    <Stack
-      screenOptions={{
-        headerStyle: { backgroundColor: colors.background },
-        headerTintColor: colors.text,
-        contentStyle: { backgroundColor: colors.background },
-      }}
-    >
-      <Stack.Screen name="index" options={{ headerShown: false }} />
-      <Stack.Screen name="review/[id]" options={{ title: 'Review changes' }} />
-      <Stack.Screen name="jobs" options={{ title: 'Clients and jobs' }} />
-    </Stack>
+    <PendingProvider>
+      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}>
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="type" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="review/[id]" />
+        <Stack.Screen name="account" options={{ presentation: 'modal' }} />
+      </Stack>
+    </PendingProvider>
   );
 }

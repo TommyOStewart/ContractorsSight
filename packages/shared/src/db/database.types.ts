@@ -67,6 +67,31 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"capture_answers": {
+                  Row: {
+                    "answer": string,"answered_by": string | null,"capture_id": string,"change_set_id": string,"created_at": string,"id": string,"org_id": string,"question": string
+                  }
+                  Insert: {
+                    "answer": string,"answered_by"?: string | null,"capture_id": string,"change_set_id": string,"created_at"?: string,"id"?: string,"org_id": string,"question": string
+                  }
+                  Update: {
+                    "answer"?: string,"answered_by"?: string | null,"capture_id"?: string,"change_set_id"?: string,"created_at"?: string,"id"?: string,"org_id"?: string,"question"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "capture_answers_capture_id_org_id_fkey"
+      columns: ["capture_id","org_id"]
+isOneToOne: false
+      referencedRelation: "captures"
+      referencedColumns: ["id","org_id"]
+    },{
+      foreignKeyName: "capture_answers_change_set_id_org_id_fkey"
+      columns: ["change_set_id","org_id"]
+isOneToOne: false
+      referencedRelation: "change_sets"
+      referencedColumns: ["id","org_id"]
+    }
+                  ]
                 },"captures": {
                   Row: {
                     "created_at": string,"created_by": string,"error": string | null,"id": string,"org_id": string,"raw_text": string | null,"status": Database["public"]['Enums']["capture_status"],"target_job_id": string | null,"type": Database["public"]['Enums']["capture_type"],"updated_at": string

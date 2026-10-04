@@ -20,15 +20,26 @@ async function call<T>(path: string, body?: unknown): Promise<T> {
   const token = data.session?.access_token;
   if (!token) throw new WorkerError('Not signed in.', 401);
 
+  // Captures take a few seconds; anything past a minute means the worker isn't answering.
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60_000);
   let res: Response;
   try {
     res = await fetch(`${workerUrl}${path}`, {
       method: 'POST',
       headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
+      signal: controller.signal,
     });
   } catch {
-    throw new WorkerError(`Can't reach the worker at ${workerUrl}. Is it running, and is the phone on the same Wi-Fi?`, 0);
+    throw new WorkerError(
+      controller.signal.aborted
+        ? `The worker at ${workerUrl} didn't answer within a minute. Check that it's running.`
+        : `Can't reach the worker at ${workerUrl}. Is it running, and is the phone on the same Wi-Fi?`,
+      0,
+    );
+  } finally {
+    clearTimeout(timeout);
   }
   const json = (await res.json().catch(() => ({}))) as { error?: string; issues?: ValidationIssue[] };
   if (!res.ok) {
@@ -46,6 +57,10 @@ export interface CaptureResult {
 
 export const worker = {
   createCapture: (input: { orgId: string; text: string; targetJobId?: string }) => call<CaptureResult>('/captures', input),
-  approve: (changeSetId: string) => call<{ ok: true; tempIdMap: Record<string, string> }>(`/change-sets/${changeSetId}/approve`),
+  /** `include`: indexes of the operations to save; omit to save all. */
+  approve: (changeSetId: string, include?: number[]) =>
+    call<{ ok: true; tempIdMap: Record<string, string> }>(`/change-sets/${changeSetId}/approve`, include ? { include } : {}),
+  /** Answer a question on a pending note; returns the re-planned note. */
+  answer: (changeSetId: string, body: { question: string; answer: string }) => call<CaptureResult>(`/change-sets/${changeSetId}/answer`, body),
   reject: (changeSetId: string) => call<{ ok: true }>(`/change-sets/${changeSetId}/reject`),
 };
