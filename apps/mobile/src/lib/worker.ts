@@ -58,13 +58,18 @@ export interface CaptureResult {
 export const worker = {
   createCapture: (input: { orgId: string; text: string; targetJobId?: string }) => call<CaptureResult>('/captures', input),
   /** The recording is already uploaded to the `captures` bucket at `audioPath`. */
-  createAudioCapture: (input: { orgId: string; audioPath: string }) => call<CaptureResult & { transcript: string }>('/captures/audio', input),
+  createAudioCapture: (input: { orgId: string; audioPath: string; targetJobId?: string }) => call<CaptureResult & { transcript: string }>('/captures/audio', input),
   /** Photos already uploaded to the `captures` bucket, one path per page. */
-  createImageCapture: (input: { orgId: string; imagePaths: string[] }) => call<CaptureResult & { transcript: string }>('/captures/image', input),
+  createImageCapture: (input: { orgId: string; imagePaths: string[]; targetJobId?: string }) => call<CaptureResult & { transcript: string }>('/captures/image', input),
   /** `include`: indexes of the operations to save; omit to save all. */
   approve: (changeSetId: string, include?: number[]) =>
     call<{ ok: true; tempIdMap: Record<string, string> }>(`/change-sets/${changeSetId}/approve`, include ? { include } : {}),
   /** Answer a question on a pending note; returns the re-planned note. */
   answer: (changeSetId: string, body: { question: string; answer: string }) => call<CaptureResult>(`/change-sets/${changeSetId}/answer`, body),
+  /** A typed or spoken fix to a pending note; returns the re-planned note. */
+  revise: (changeSetId: string, body: { text: string } | { audioPath: string }) => call<CaptureResult>(`/change-sets/${changeSetId}/revise`, body),
+  /** Save a hand edit to one proposed change; returns what still needs fixing. */
+  updateOperation: (changeSetId: string, index: number, args: Record<string, unknown>) =>
+    call<{ issues: ValidationIssue[] }>(`/change-sets/${changeSetId}/operations/${index}`, { args }),
   reject: (changeSetId: string) => call<{ ok: true }>(`/change-sets/${changeSetId}/reject`),
 };

@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, it } from "vitest";
-import { answerQuestion, createAudioCapture, createImageCapture, createTextCapture, localDay } from "../../src/capture/captureService";
+import { answerQuestion, correctCapture, createAudioCapture, createImageCapture, createTextCapture, localDay } from "../../src/capture/captureService";
+import { updateOperation } from "../../src/commit/changeSetService";
 import { approveChangeSet } from "../../src/commit/changeSetService";
 import { PostgresPlannerData } from "../../src/planner/PostgresPlannerData";
 import type { ChatModel, ChatResponse } from "../../src/planner/types";
@@ -111,7 +112,7 @@ describe("answering a question", () => {
     const second = await answerQuestion(deps, { userId: org.userId, changeSetId: first.changeSetId!, question: "Which job?", answer: "Leaky water heater (Jeb Henderson)" });
     expect(second.captureId).toBe(first.captureId);
     expect(second.changeSetId).not.toBe(first.changeSetId);
-    expect(model.prompts[2]).toContain("A: Leaky water heater (Jeb Henderson)");
+    expect(model.prompts[2]).toContain("Leaky water heater (Jeb Henderson)");
 
     const rows = await sql`select id, status from change_sets where capture_id = ${first.captureId} order by created_at`;
     expect(rows.map((r) => r.status)).toEqual(["rejected", "pending"]);
@@ -213,5 +214,57 @@ describe("createImageCapture", () => {
     );
     expect(result.changeSetId).toBeNull();
     expect(result.summary).toMatch(/couldn't read/);
+  });
+});
+
+describe("fixing a proposal", () => {
+  const addMaterial = (jobId: string, quantity: number) => ({
+    text: null,
+    toolCalls: [{ id: `m${quantity}`, name: "add_material", arguments: JSON.stringify({ jobId, description: "SharkBite coupling", quantity }) }],
+    usage,
+  });
+
+  it("re-plans with the previous proposal and the correction", async () => {
+    const org = await seedOrg();
+    const model = scripted([addMaterial(org.jobId, 2), { text: "Added 2.", toolCalls: [], usage }, addMaterial(org.jobId, 3), { text: "Added 3.", toolCalls: [], usage }]);
+    const deps = { sql, model, data, timezone: "America/New_York" };
+    const first = await createTextCapture(deps, { userId: org.userId, orgId: org.orgId, text: "Need SB couplings for the heater job" });
+    const fixed = await correctCapture(deps, { userId: org.userId, changeSetId: first.changeSetId!, text: "make it three, not two" });
+
+    expect(model.prompts[2]).toContain("Your previous proposal");
+    // The prompt is JSON-encoded once more by the test helper, so quotes appear escaped.
+    expect(model.prompts[2]).toMatch(/quantity\\*":2/);
+    expect(model.prompts[2]).toContain("make it three, not two");
+    const [cs] = await sql`select operations from change_sets where id = ${fixed.changeSetId}`;
+    expect((cs!.operations as { args: { quantity: number } }[])[0]!.args.quantity).toBe(3);
+  });
+
+  it("saves a hand edit, refuses an invalid one, and reports rule problems", async () => {
+    const org = await seedOrg();
+    const deps = { sql, model: scripted([addMaterial(org.jobId, 2), { text: "Added.", toolCalls: [], usage }]), data, timezone: "America/New_York" };
+    const { changeSetId } = await createTextCapture(deps, { userId: org.userId, orgId: org.orgId, text: "couplings" });
+
+    const ok = await updateOperation(sql, { changeSetId: changeSetId!, userId: org.userId, index: 0, args: { jobId: org.jobId, description: "1/2in SharkBite coupling", quantity: 5 } });
+    expect(ok.issues).toEqual([]);
+    const [after] = await sql`select operations from change_sets where id = ${changeSetId}`;
+    expect((after!.operations as { args: { quantity: number; description: string } }[])[0]!.args).toMatchObject({ quantity: 5, description: "1/2in SharkBite coupling" });
+
+    await expect(
+      updateOperation(sql, { changeSetId: changeSetId!, userId: org.userId, index: 0, args: { jobId: org.jobId, description: "x", quantity: -1 } }),
+    ).rejects.toMatchObject({ status: 409 });
+
+    const otherOrg = await seedOrg();
+    const flagged = await updateOperation(sql, { changeSetId: changeSetId!, userId: org.userId, index: 0, args: { jobId: otherOrg.jobId, description: "x", quantity: 1 } });
+    expect(flagged.issues.map((i) => i.code)).toEqual(["CROSS_ORG_REFERENCE"]);
+  });
+
+  it("ties a voice note to the job it was recorded from", async () => {
+    const org = await seedOrg();
+    const model = scripted([{ text: "Nothing.", toolCalls: [], usage }]);
+    await createAudioCapture(
+      { sql, model, data, timezone: "America/New_York", transcriber: { id: "t", transcribe: async () => ({ text: "it's leaking", costUsd: 0 }) }, downloadFile: async () => new Uint8Array([1]) },
+      { userId: org.userId, orgId: org.orgId, accessToken: "t", audioPath: `${org.orgId}/x.m4a`, targetJobId: org.jobId },
+    );
+    expect(model.prompts[0]).toContain(`(ID ${org.jobId})`);
   });
 });

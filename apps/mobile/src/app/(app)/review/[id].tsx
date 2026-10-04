@@ -7,7 +7,8 @@ import { usePending } from '../../../data/PendingProvider';
 import { supabase } from '../../../lib/supabase';
 import { worker, WorkerError } from '../../../lib/worker';
 import { addTempNames, describeOperation, referencedIds, type Described, type Names } from '../../../review/describe';
-import { BigButton, Card, CheckRow, colors, Display, fonts, IconButton, Loading, Message, Screen, SectionLabel, Small, Strong, TextButton } from '../../../ui';
+import { OperationEditor } from '../../../review/OperationEditor';
+import { BigButton, Card, CheckRow, colors, Display, fonts, IconButton, Loading, Message, Screen, SecondaryButton, SectionLabel, Small, Strong, TextButton } from '../../../ui';
 
 type Args = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -23,7 +24,7 @@ interface Loaded {
   captureType: string;
   createdAt: string;
   /** Changes with their index in the stored operations (needed to approve a selection). */
-  changes: { index: number; described: Described }[];
+  changes: { index: number; described: Described; args: Args }[];
   questions: Question[];
   issues: ValidationIssue[];
 }
@@ -61,6 +62,10 @@ export default function ReviewScreen() {
   const [error, setError] = useState<string | null>(null);
   const [issues, setIssues] = useState<ValidationIssue[]>([]);
   const [typedAnswer, setTypedAnswer] = useState('');
+  const [editing, setEditing] = useState<number | null>(null);
+  const [fixText, setFixText] = useState('');
+  // Bumped after a hand edit to reload the proposal and its remaining issues.
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     setLoaded(null);
@@ -85,7 +90,7 @@ export default function ReviewScreen() {
             excerpt: op.args.sourceExcerpt,
             options: (op.args.candidates ?? []).map((c: Args) => c.label as string),
           });
-        } else changes.push({ index, described: describeOperation(op.tool, op.args, names) });
+        } else changes.push({ index, described: describeOperation(op.tool, op.args, names), args: op.args });
       });
       setLoaded({
         status: data.status,
@@ -96,9 +101,9 @@ export default function ReviewScreen() {
         questions,
         issues: (data.validation_issues ?? []) as unknown as ValidationIssue[],
       });
-      setSelected(new Set(changes.map((c) => c.index)));
+      setSelected((prev) => (reloadKey > 0 && prev.size ? prev : new Set(changes.map((c) => c.index))));
     })();
-  }, [id]);
+  }, [id, reloadKey]);
 
   function toggle(index: number) {
     setSelected((prev) => {
@@ -122,6 +127,35 @@ export default function ReviewScreen() {
         setError(e.message);
         setIssues(e.issues);
       } else setError('Something went wrong. Nothing was saved.');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function saveEdit(index: number, args: Args): Promise<string | null> {
+    try {
+      const { issues: left } = await worker.updateOperation(id, index, args);
+      setEditing(null);
+      setIssues(left);
+      setReloadKey((k) => k + 1);
+      return null;
+    } catch (e) {
+      return e instanceof WorkerError ? e.message : 'Could not save that edit.';
+    }
+  }
+
+  async function typeFix() {
+    if (!fixText.trim()) return;
+    setError(null);
+    setBusy('answer');
+    try {
+      const result = await worker.revise(id, { text: fixText.trim() });
+      void refresh();
+      setFixText('');
+      if (result.changeSetId) router.replace(`/review/${result.changeSetId}`);
+      else router.back();
+    } catch (e) {
+      setError(e instanceof WorkerError ? e.message : 'Something went wrong sending your fix.');
     } finally {
       setBusy(null);
     }
@@ -232,13 +266,28 @@ export default function ReviewScreen() {
         ))}
 
       {loaded.changes.length > 0 && <SectionLabel>{pending ? (firstQuestion ? 'Ready to save anyway' : 'Ready to save') : 'Changes'}</SectionLabel>}
-      {loaded.changes.map(({ index, described }) =>
-        pending ? (
+      {loaded.changes.map(({ index, described, args }) =>
+        pending && editing === index ? (
+          <Card key={index} tone="accent" style={{ gap: 12 }}>
+            <Strong>{described.title}</Strong>
+            <OperationEditor args={args} onSave={(next) => saveEdit(index, next)} onCancel={() => setEditing(null)} />
+          </Card>
+        ) : pending ? (
           <CheckRow key={index} checked={selected.has(index)} onToggle={() => toggle(index)}>
             <Strong>{described.title}</Strong>
             {described.details.map((d, j) => (
               <Small key={j}>{d}</Small>
             ))}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Edit ${described.title}`}
+              onPress={() => setEditing(index)}
+              hitSlop={8}
+              style={styles.editLink}
+            >
+              <Feather name="edit-2" size={16} color={colors.accent} />
+              <Text style={styles.editText}>Edit</Text>
+            </Pressable>
           </CheckRow>
         ) : (
           <Card key={index}>
@@ -248,6 +297,27 @@ export default function ReviewScreen() {
             ))}
           </Card>
         ),
+      )}
+
+      {pending && editing === null && (
+        <Card style={{ gap: 12 }}>
+          <Strong size={18}>Something not right?</Strong>
+          <Small>Say or type what to change and we'll redo it, like "it's three couplings, not two."</Small>
+          <SecondaryButton title="Fix it by talking" icon="mic" busy={busy === 'answer'} onPress={() => router.push(`/record?revise=${id}`)} />
+          <View style={styles.answerRow}>
+            <TextInput
+              value={fixText}
+              onChangeText={setFixText}
+              placeholder="Or type a fix"
+              placeholderTextColor={colors.muted}
+              selectionColor={colors.accent}
+              style={[styles.answerInput, { borderColor: colors.borderStrong, backgroundColor: colors.surfaceSunk }]}
+              returnKeyType="send"
+              onSubmitEditing={() => void typeFix()}
+            />
+            <IconButton icon="send" label="Send fix" onPress={() => void typeFix()} />
+          </View>
+        </Card>
       )}
 
       {shownIssues.length > 0 && (
@@ -304,4 +374,6 @@ const styles = StyleSheet.create({
   },
   said: { borderRadius: 14, borderWidth: 1, borderColor: colors.divider, backgroundColor: colors.surfaceSunk, padding: 14, gap: 8, minHeight: 56, justifyContent: 'center' },
   saidLabel: { fontFamily: fonts.semibold, fontSize: 16, color: colors.muted },
+  editLink: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', minHeight: 36, marginTop: 4 },
+  editText: { fontFamily: fonts.bold, fontSize: 15, color: colors.accent },
 });

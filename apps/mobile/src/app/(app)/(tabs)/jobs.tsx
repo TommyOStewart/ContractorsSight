@@ -1,5 +1,5 @@
 import { Feather } from '@expo/vector-icons';
-import { useFocusEffect } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSession } from '../../../auth/SessionProvider';
@@ -121,7 +121,7 @@ export default function JobsScreen() {
         </Card>
       )}
       {shown.map((j) => (
-        <Card key={j.id}>
+        <Card key={j.id} onPress={() => router.push({ pathname: '/job/[id]', params: { id: j.id } })}>
           <View style={styles.titleRow}>
             <View style={{ flex: 1 }}>
               <Strong>{j.title}</Strong>

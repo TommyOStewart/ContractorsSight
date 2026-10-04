@@ -1,7 +1,10 @@
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import { z } from "zod";
 import {
   answerQuestion,
+  correctCapture,
+  correctCaptureByAudio,
   createAudioCapture,
   createImageCapture,
   createTextCapture,
@@ -9,7 +12,7 @@ import {
   type CaptureDeps,
   type ImageDeps,
 } from "../capture/captureService";
-import { approveChangeSet, ChangeSetError, rejectChangeSet } from "../commit/changeSetService";
+import { approveChangeSet, ChangeSetError, rejectChangeSet, updateOperation } from "../commit/changeSetService";
 import type { Sql } from "../db/sql";
 
 /** Resolves a bearer token to a user ID, or null if the token is missing, invalid, or expired. */
@@ -36,6 +39,10 @@ const uuid = z.uuid();
  */
 export function createApp({ sql, verifyUser, capture, audio, images }: AppDeps) {
   const app = new Hono<Env>();
+
+  // Browsers (the web build) need CORS; phones don't. Any origin is fine: every request carries its
+  // own bearer token and the worker uses no cookies.
+  app.use("*", cors({ origin: "*", allowHeaders: ["authorization", "content-type"], allowMethods: ["GET", "POST", "OPTIONS"] }));
 
   app.get("/health", (c) => c.json({ ok: true }));
 
@@ -75,7 +82,7 @@ export function createApp({ sql, verifyUser, capture, audio, images }: AppDeps) 
     return result.ok ? c.json(result) : c.json(result, 409);
   });
 
-  const audioBody = z.object({ orgId: uuid, audioPath: z.string().min(1).max(500) });
+  const audioBody = z.object({ orgId: uuid, audioPath: z.string().min(1).max(500), targetJobId: uuid.optional() });
 
   app.post("/captures/audio", async (c) => {
     if (!capture || !audio) return c.json({ error: "Voice notes aren't configured on this worker." }, 503);
@@ -88,7 +95,7 @@ export function createApp({ sql, verifyUser, capture, audio, images }: AppDeps) 
     return c.json(result, 201);
   });
 
-  const imageBody = z.object({ orgId: uuid, imagePaths: z.array(z.string().min(1).max(500)).min(1).max(5) });
+  const imageBody = z.object({ orgId: uuid, imagePaths: z.array(z.string().min(1).max(500)).min(1).max(5), targetJobId: uuid.optional() });
 
   app.post("/captures/image", async (c) => {
     if (!capture || !images) return c.json({ error: "Photos aren't configured on this worker." }, 503);
@@ -99,6 +106,40 @@ export function createApp({ sql, verifyUser, capture, audio, images }: AppDeps) 
       { userId: c.get("userId"), accessToken: c.get("accessToken"), ...body.data },
     );
     return c.json(result, 201);
+  });
+
+  const reviseBody = z.union([
+    z.object({ text: z.string().trim().min(1).max(4000) }),
+    z.object({ audioPath: z.string().min(1).max(500) }),
+  ]);
+
+  // A typed or spoken correction to a pending proposal; returns the re-planned proposal.
+  app.post("/change-sets/:id/revise", async (c) => {
+    if (!capture) return c.json({ error: "Captures aren't configured on this worker." }, 503);
+    const id = uuid.safeParse(c.req.param("id"));
+    if (!id.success) return c.json({ error: "Change set not found." }, 404);
+    const body = reviseBody.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json({ error: "Say or type what to change." }, 400);
+    const userId = c.get("userId");
+    if ("text" in body.data) return c.json(await correctCapture({ sql, ...capture }, { userId, changeSetId: id.data, text: body.data.text }), 201);
+    if (!audio) return c.json({ error: "Voice notes aren't configured on this worker." }, 503);
+    const result = await correctCaptureByAudio(
+      { sql, ...capture, ...audio },
+      { userId, changeSetId: id.data, accessToken: c.get("accessToken"), audioPath: body.data.audioPath },
+    );
+    return c.json(result, 201);
+  });
+
+  const editBody = z.object({ args: z.record(z.string(), z.unknown()) });
+
+  // The reviewer edited one proposed change by hand.
+  app.post("/change-sets/:id/operations/:index", async (c) => {
+    const id = uuid.safeParse(c.req.param("id"));
+    const index = z.coerce.number().int().nonnegative().safeParse(c.req.param("index"));
+    if (!id.success || !index.success) return c.json({ error: "Change not found." }, 404);
+    const body = editBody.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json({ error: "Invalid edit." }, 400);
+    return c.json(await updateOperation(sql, { changeSetId: id.data, userId: c.get("userId"), index: index.data, args: body.data.args }));
   });
 
   app.post("/change-sets/:id/answer", async (c) => {

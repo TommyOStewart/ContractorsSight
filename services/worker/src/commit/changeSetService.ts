@@ -1,5 +1,6 @@
 import {
   AUDIT_SOURCE_BY_CAPTURE_TYPE,
+  getTool,
   resolveTempIds,
   validateChangeSet,
   type CaptureType,
@@ -106,5 +107,42 @@ export async function rejectChangeSet(sql: Sql, input: { changeSetId: string; us
     const changeSet = await lockForReview(tx, input.changeSetId, input.userId);
     await tx`update change_sets set status = 'rejected', reviewed_by = ${input.userId}, reviewed_at = now() where id = ${changeSet.id}`;
     await tx`update captures set status = 'rejected' where id = ${changeSet.captureId}`;
+  });
+}
+
+/**
+ * The reviewer edited one proposed change by hand. The new args must satisfy that tool's schema;
+ * the whole set is then re-validated and the issues stored, so the screen shows what's left to fix.
+ * Approving still re-validates everything, so an edit can never bypass the rules.
+ */
+export async function updateOperation(
+  sql: Sql,
+  input: { changeSetId: string; userId: string; index: number; args: unknown },
+): Promise<{ issues: ValidationIssue[] }> {
+  return sql.begin(async (tx) => {
+    const changeSet = await lockForReview(tx, input.changeSetId, input.userId);
+    const operations = Array.isArray(changeSet.operations) ? [...(changeSet.operations as { tool: string; args: unknown }[])] : [];
+    const op = operations[input.index];
+    if (!op) throw new ChangeSetError(404, "That change isn't in this proposal.");
+
+    const tool = getTool(op.tool);
+    const parsed = tool?.input.safeParse(input.args);
+    if (!parsed?.success) {
+      const message = parsed?.error.issues.map((i) => `${i.path.join(".") || "value"}: ${i.message}`).join("; ") ?? "Unknown change.";
+      throw new ChangeSetError(409, `That edit isn't valid: ${message}`);
+    }
+    operations[input.index] = { tool: op.tool, args: input.args };
+
+    const validation = await validateChangeSet(
+      { captureId: changeSet.captureId, baseJobVersions: changeSet.baseJobVersions, operations },
+      { orgId: changeSet.orgId, repository: new PostgresValidationRepository(tx) },
+    );
+    const issues = validation.ok ? [] : validation.issues;
+    await tx`
+      update change_sets
+      set operations = ${tx.json(operations as unknown as postgres.JSONValue)},
+          validation_issues = ${tx.json(issues as unknown as postgres.JSONValue)}
+      where id = ${changeSet.id}`;
+    return { issues };
   });
 }

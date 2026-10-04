@@ -194,3 +194,12 @@ describe("approving a selection", () => {
     await expect(approveChangeSet(sql, { changeSetId, userId: org.userId, include: [] })).rejects.toMatchObject({ status: 409 });
   });
 });
+
+describe("CORS", () => {
+  it("answers browser preflights without a token", async () => {
+    const app = createApp({ sql, verifyUser: async () => null });
+    const res = await app.request("/captures", { method: "OPTIONS", headers: { origin: "http://localhost:8083", "access-control-request-method": "POST", "access-control-request-headers": "authorization,content-type" } });
+    expect(res.status).toBe(204);
+    expect(res.headers.get("access-control-allow-origin")).toBe("*");
+  });
+});

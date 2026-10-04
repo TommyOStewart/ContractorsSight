@@ -61,14 +61,19 @@ async function planCapture(
     text: string;
     targetJob?: { id: string; title: string };
     answers?: { question: string; answer: string }[];
+    /** The proposal being replaced, so corrections like "make it three" have something to change. */
+    previousOperations?: unknown[];
   },
 ): Promise<CaptureResult> {
   const { sql } = deps;
   const { captureId } = input;
   const context = await deps.data.promptContext(input.orgId);
   const { today, utcOffset } = localDay(deps.now?.() ?? new Date(), deps.timezone);
+  const previous = input.previousOperations?.length
+    ? `\n\nYour previous proposal for this capture (shown to the contractor, not saved):\n${JSON.stringify(input.previousOperations)}`
+    : "";
   const answers = input.answers?.length
-    ? `\n\nThe contractor answered your earlier questions about this capture:\n${input.answers.map((a) => `- Q: ${a.question}\n  A: ${a.answer}`).join("\n")}\nUse these answers; don't ask them again.`
+    ? `\n\nThe contractor responded to your proposal:\n${input.answers.map((a) => `- ${a.question}\n  ${a.answer}`).join("\n")}\nStage the complete corrected set from scratch: apply these answers and corrections, keep everything they didn't change, and don't ask again about what they answered.`
     : "";
 
   const result = await runPlanner({
@@ -84,7 +89,9 @@ async function planCapture(
         captureType: input.captureType,
         targetJob: input.targetJob,
         candidates: await deps.data.find(input.orgId, input.text),
-      }) + answers,
+      }) +
+      previous +
+      answers,
   });
   console.log(
     `capture ${captureId}: ${result.draft.operations.length} ops, ${result.issues.length} issues, ` +
@@ -151,22 +158,67 @@ export async function createTextCapture(
   }
 }
 
-/**
- * The contractor answered a question (flag_ambiguity) on a pending ChangeSet: re-plan the same
- * capture with the answer, replace the old proposal (marked rejected), and return the new one.
- */
+interface PendingCapture {
+  orgId: string;
+  captureId: string;
+  status: string;
+  type: "audio" | "image" | "text";
+  rawText: string | null;
+  targetJobId: string | null;
+  operations: unknown[];
+}
+
+async function loadPending(sql: Sql, changeSetId: string, userId: string): Promise<PendingCapture> {
+  const [row] = await sql<PendingCapture[]>`
+    select cs.org_id, cs.capture_id, cs.status, cs.operations, c.type, c.raw_text, c.target_job_id
+    from change_sets cs join captures c on c.id = cs.capture_id
+    where cs.id = ${changeSetId}`;
+  if (!row) throw new ChangeSetError(404, "Change set not found.");
+  await requireMember(sql, row.orgId, userId);
+  if (row.status !== "pending") throw new ChangeSetError(409, `Change set is already ${row.status}.`);
+  return row;
+}
+
+/** Answer to a flag_ambiguity question. */
 export async function answerQuestion(
   deps: CaptureDeps,
   input: { userId: string; changeSetId: string; question: string; answer: string },
 ): Promise<CaptureResult> {
+  return reviseCapture(deps, input);
+}
+
+/** A typed correction to a pending proposal ("make it three, not two"). */
+export async function correctCapture(deps: CaptureDeps, input: { userId: string; changeSetId: string; text: string }): Promise<CaptureResult> {
+  return reviseCapture(deps, { userId: input.userId, changeSetId: input.changeSetId, question: "Correction after reviewing:", answer: input.text });
+}
+
+/** A spoken correction to a pending proposal: transcribe, keep the recording, then revise. */
+export async function correctCaptureByAudio(
+  deps: CaptureDeps & AudioDeps,
+  input: { userId: string; changeSetId: string; accessToken: string; audioPath: string },
+): Promise<CaptureResult & { transcript: string }> {
+  const pending = await loadPending(deps.sql, input.changeSetId, input.userId);
+  requireOrgPath(pending.orgId, input.audioPath);
+  await deps.sql`
+    insert into attachments (org_id, storage_path, mime_type, capture_id, uploaded_by)
+    values (${pending.orgId}, ${input.audioPath}, 'audio/mp4', ${pending.captureId}, ${input.userId})`;
+  const { text } = await deps.transcriber.transcribe(await deps.downloadFile(input.accessToken, input.audioPath), "m4a");
+  if (!text) throw new ChangeSetError(409, "We couldn't hear anything in that recording. Try again a little closer to the phone.");
+  const result = await correctCapture(deps, { userId: input.userId, changeSetId: input.changeSetId, text });
+  return { ...result, transcript: text };
+}
+
+/**
+ * The contractor answered a question or corrected a pending ChangeSet: re-plan the same capture
+ * with every answer so far plus the proposal being replaced, mark the old proposal rejected, and
+ * return the new one.
+ */
+async function reviseCapture(
+  deps: CaptureDeps,
+  input: { userId: string; changeSetId: string; question: string; answer: string },
+): Promise<CaptureResult> {
   const { sql } = deps;
-  const [row] = await sql<{ orgId: string; captureId: string; status: string; type: "audio" | "image" | "text"; rawText: string | null; targetJobId: string | null }[]>`
-    select cs.org_id, cs.capture_id, cs.status, c.type, c.raw_text, c.target_job_id
-    from change_sets cs join captures c on c.id = cs.capture_id
-    where cs.id = ${input.changeSetId}`;
-  if (!row) throw new ChangeSetError(404, "Change set not found.");
-  await requireMember(sql, row.orgId, input.userId);
-  if (row.status !== "pending") throw new ChangeSetError(409, `Change set is already ${row.status}.`);
+  const row = await loadPending(sql, input.changeSetId, input.userId);
 
   // Earlier answers on this capture, so a second question doesn't lose the first answer.
   const previous = await sql<{ question: string; answer: string }[]>`
@@ -187,6 +239,7 @@ export async function answerQuestion(
       text: row.rawText ?? "",
       targetJob,
       answers: [...previous, { question: input.question, answer: input.answer }],
+      previousOperations: row.operations,
     });
   } catch (error) {
     return failCapture(sql, row.captureId, error);
@@ -206,6 +259,13 @@ export interface ImageDeps {
   downloadFile: DownloadFile;
 }
 
+async function loadTargetJob(sql: Sql, orgId: string, jobId?: string): Promise<{ id: string; title: string } | undefined> {
+  if (!jobId) return undefined;
+  const [job] = await sql<{ id: string; title: string }[]>`select id, title from jobs where id = ${jobId} and org_id = ${orgId}`;
+  if (!job) throw new ChangeSetError(404, "Job not found.");
+  return job;
+}
+
 /** Uploaded files must sit under the org's folder in the captures bucket. */
 function requireOrgPath(orgId: string, path: string) {
   if (!path.startsWith(`${orgId}/`) || path.includes("..")) throw new ChangeSetError(404, "File not found.");
@@ -217,15 +277,16 @@ function requireOrgPath(orgId: string, path: string) {
  */
 export async function createAudioCapture(
   deps: CaptureDeps & AudioDeps,
-  input: { userId: string; orgId: string; accessToken: string; audioPath: string },
+  input: { userId: string; orgId: string; accessToken: string; audioPath: string; targetJobId?: string },
 ): Promise<CaptureResult & { transcript: string }> {
   const { sql } = deps;
   await requireMember(sql, input.orgId, input.userId);
   requireOrgPath(input.orgId, input.audioPath);
+  const targetJob = await loadTargetJob(sql, input.orgId, input.targetJobId);
 
   const [capture] = await sql<{ id: string }[]>`
-    insert into captures (org_id, created_by, type, status)
-    values (${input.orgId}, ${input.userId}, 'audio', 'processing')
+    insert into captures (org_id, created_by, type, target_job_id, status)
+    values (${input.orgId}, ${input.userId}, 'audio', ${input.targetJobId ?? null}, 'processing')
     returning id`;
   const captureId = capture!.id;
   await sql`
@@ -241,7 +302,7 @@ export async function createAudioCapture(
       return { captureId, changeSetId: null, summary: "We couldn't hear anything in that recording. Try again a little closer to the phone.", issues: [], transcript: "" };
     }
     await sql`update captures set raw_text = ${text} where id = ${captureId}`;
-    const result = await planCapture(deps, { captureId, captureType: "audio", orgId: input.orgId, text });
+    const result = await planCapture(deps, { captureId, captureType: "audio", orgId: input.orgId, text, targetJob });
     return { ...result, transcript: text };
   } catch (error) {
     return failCapture(sql, captureId, error);
@@ -254,15 +315,16 @@ export async function createAudioCapture(
  */
 export async function createImageCapture(
   deps: CaptureDeps & ImageDeps,
-  input: { userId: string; orgId: string; accessToken: string; imagePaths: string[] },
+  input: { userId: string; orgId: string; accessToken: string; imagePaths: string[]; targetJobId?: string },
 ): Promise<CaptureResult & { transcript: string }> {
   const { sql } = deps;
   await requireMember(sql, input.orgId, input.userId);
   for (const path of input.imagePaths) requireOrgPath(input.orgId, path);
+  const targetJob = await loadTargetJob(sql, input.orgId, input.targetJobId);
 
   const [capture] = await sql<{ id: string }[]>`
-    insert into captures (org_id, created_by, type, status)
-    values (${input.orgId}, ${input.userId}, 'image', 'processing')
+    insert into captures (org_id, created_by, type, target_job_id, status)
+    values (${input.orgId}, ${input.userId}, 'image', ${input.targetJobId ?? null}, 'processing')
     returning id`;
   const captureId = capture!.id;
   for (const path of input.imagePaths) {
@@ -288,7 +350,7 @@ export async function createImageCapture(
       };
     }
     await sql`update captures set raw_text = ${text} where id = ${captureId}`;
-    const result = await planCapture(deps, { captureId, captureType: "image", orgId: input.orgId, text });
+    const result = await planCapture(deps, { captureId, captureType: "image", orgId: input.orgId, text, targetJob });
     return { ...result, transcript: text };
   } catch (error) {
     return failCapture(sql, captureId, error);

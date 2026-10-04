@@ -4,11 +4,20 @@
     {
       "name": "mobile-web-local",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "@contractorsight/mobile", "exec", "expo", "start", "--web", "--port", "8083"],
+      "runtimeArgs": [
+        "--filter",
+        "@contractorsight/mobile",
+        "exec",
+        "expo",
+        "start",
+        "--web",
+        "--port",
+        "8083"
+      ],
       "env": {
         "EXPO_PUBLIC_SUPABASE_URL": "http://127.0.0.1:54321",
         "EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY": "sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH",
-        "EXPO_PUBLIC_WORKER_URL": "http://127.0.0.1:8787",
+        "EXPO_PUBLIC_WORKER_URL": "http://127.0.0.1:8788",
         "BROWSER": "none",
         "CI": "1"
       },
