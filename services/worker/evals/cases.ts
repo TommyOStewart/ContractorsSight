@@ -39,6 +39,19 @@ const only = (...tools: string[]): Check => ({
 const either = (a: Check, b: Check): Check => ({ describe: `(${a.describe}) or (${b.describe})`, test: (ops) => a.test(ops) || b.test(ops) });
 const all = (...checks: Check[]): Check => ({ describe: checks.map((c) => c.describe).join(" and "), test: (ops) => checks.every((c) => c.test(ops)) });
 const flags = has("flag_ambiguity", "flags the ambiguity");
+/** A new client's address given on both create_client and create_job would create two identical sites. */
+const noDuplicateSite: Check = {
+  describe: "address not given to both the new client and its job (duplicate site)",
+  test: (ops) =>
+    !ops.some(
+      (job) =>
+        job.tool === "create_job" &&
+        job.args.siteAddress &&
+        ops.some((c) => c.tool === "create_client" && c.args.tempId === job.args.clientId && c.args.siteAddress),
+    ),
+};
+/** Final status of a job after the staged status changes, or undefined if none. */
+const finalStatus = (ops: Op[], jobId: string) => statusChanges(ops, jobId).at(-1);
 const statusChanges = (ops: Op[], jobId: string) =>
   ops.filter((o) => o.tool === "request_status_change" && o.args.jobId === jobId).map((o) => o.args.toStatus);
 
@@ -90,6 +103,7 @@ export const CASES: EvalCase[] = [
         test: (ops) => ops.some((o) => (o.tool === "create_job" || o.tool === "create_client") && /31 spruce/i.test(o.args.siteAddress?.line1 ?? "")),
       },
       none("flag_ambiguity"),
+      noDuplicateSite,
     ],
   },
   {
@@ -229,6 +243,7 @@ export const CASES: EvalCase[] = [
       has("create_client", "Priya Shah", (a) => /priya shah/i.test(a.name)),
       has("create_job", "tankless job for Priya", (a, ops) => ops.some((o) => o.tool === "create_client" && o.args.tempId === a.clientId) && /tankless/i.test(a.title + (a.description ?? ""))),
       { describe: "Walters (no quote yet) not pushed to accepted", test: (ops) => !statusChanges(ops, ids.waltersDrain).includes("accepted") },
+      noDuplicateSite,
     ],
   },
   {
@@ -274,6 +289,152 @@ export const CASES: EvalCase[] = [
           a.jobId === ids.hendersonWaterHeater && a.supplyHouseId === ids.homeDepot && a.lines.some((l: Args) => l.quantity === 2 && l.unitCostDollars === 18.5),
         ),
       ),
+    ],
+  },
+
+  // --- harder cases (added after the first bake-off didn't separate the models) ---
+
+  {
+    id: "26-self-correction-quantity",
+    captureType: "audio",
+    text: "Add three, no wait, four half inch SB tees to Maria's repipe.",
+    checks: [
+      has("add_material", "4 × 1/2in SharkBite tees on Maria repipe", (a) => a.jobId === ids.mariaRepipe && a.quantity === 4 && /sharkbite/i.test(a.description) && /tee/i.test(a.description)),
+      only("add_material"),
+    ],
+  },
+  {
+    id: "27-relative-time",
+    captureType: "audio",
+    text: "Schedule Maria's repipe for tomorrow at 2.",
+    checks: [has("schedule_job", "Maria repipe Tue 2026-10-06 14:00 local", (a) => a.jobId === ids.mariaRepipe && sameInstant(a.start, "2026-10-06T19:00:00Z"))],
+  },
+  {
+    id: "28-rambling-three-jobs",
+    captureType: "audio",
+    text:
+      "Okay so today. Finished up at the Kim place, pump's in and working. Then over to Maria's rental, toilet's done too, swapped the wax ring and the supply line. " +
+      "Henderson called, he wants to hold off on the water heater until spring. Oh and I need to grab a four inch closet flange for tomorrow.",
+    checks: [
+      { describe: "Kim sump → completed", test: (ops) => finalStatus(ops, ids.kimSump) === "completed" },
+      { describe: "rental toilet → in_progress then completed", test: (ops) => statusChanges(ops, ids.mariaRentalToilet).join(",") === "in_progress,completed" },
+      { describe: "Henderson WH not declined or cancelled", test: (ops) => statusChanges(ops, ids.hendersonWaterHeater).length === 0 },
+      has("add_note", "Henderson hold-until-spring noted", (a) => /spring/i.test(a.body) && (a.jobId === ids.hendersonWaterHeater || a.clientId === ids.jebHenderson)),
+    ],
+  },
+  {
+    id: "29-noisy-ocr-receipt",
+    captureType: "image",
+    text: "H0ME DEP0T #4412\n10/04/26  09:15\n3/4 C0PPER ELB0W 90   6 @ 2.49   14.94\nSUBT0TAL 14.94\nTAX 0.89\nT0TAL 15.83\nN0TE: KIM SUMP",
+    checks: [
+      has("record_purchase", "Home Depot, Kim sump, 6 copper elbows at $2.49, dated 10/04", (a) =>
+        a.jobId === ids.kimSump &&
+        a.supplyHouseId === ids.homeDepot &&
+        a.purchasedOn === "2026-10-04" &&
+        a.lines.some((l: Args) => l.quantity === 6 && l.unitCostDollars === 2.49 && /copper/i.test(l.description)),
+      ),
+    ],
+  },
+  {
+    id: "30-quote-self-correction",
+    captureType: "audio",
+    text: "Maria's repipe quote, make it 16 hours at 115... actually no, make it 18 hours, it's a bigger job than I thought.",
+    checks: [
+      has("revise_quote", "based on the latest quote, 18h at $115", (a) =>
+        a.jobId === ids.mariaRepipe && a.basedOnQuoteId === ids.mariaQuote && a.lineItems.some((l: Args) => l.kind === "labor" && l.hours === 18 && l.hourlyRateDollars === 115),
+      ),
+      { describe: "no 16-hour line", test: (ops) => !ops.some((o) => o.tool === "revise_quote" && o.args.lineItems.some((l: Args) => l.hours === 16)) },
+    ],
+  },
+  {
+    id: "31-unknown-person",
+    captureType: "audio",
+    text: "Bob called about a running toilet, wants someone out this week.",
+    checks: [
+      either(flags, has("create_client", "new client Bob", (a) => /bob/i.test(a.name))),
+      {
+        describe: "not attached to an existing client",
+        test: (ops) => !ops.some((o) => (o.tool === "create_job" || o.tool === "add_note") && Object.values(ids).includes(o.args.clientId)),
+      },
+    ],
+  },
+  {
+    id: "32-existing-site",
+    captureType: "text",
+    text: "New job for Maria Lopez at her rental on Birch: replace the kitchen faucet.",
+    checks: [
+      has("create_job", "Maria, existing Birch Ln site (not a new address)", (a) => a.clientId === ids.maria && a.siteId === ids.siteBirch && !a.siteAddress && /faucet/i.test(a.title)),
+      none("create_client"),
+    ],
+  },
+  {
+    id: "33-units",
+    captureType: "audio",
+    text: "Need 50 feet of three quarter PEX for the Kim job.",
+    checks: [
+      has("add_material", "50 ft of 3/4 PEX on Kim sump", (a) =>
+        a.jobId === ids.kimSump && a.quantity === 50 && /ft|feet|foot/i.test(a.unit ?? a.description) && /pex/i.test(a.description) && /3\/4|three.quarter/i.test(a.description),
+      ),
+    ],
+  },
+  {
+    id: "34-status-already-set",
+    captureType: "audio",
+    text: "Maria approved the repipe.",
+    checks: [{ describe: "no status change (already accepted)", test: (ops) => statusChanges(ops, ids.mariaRepipe).length === 0 }, none("schedule_job", "revise_quote")],
+  },
+  {
+    id: "35-customer-backed-out",
+    captureType: "audio",
+    text: "Walters backed out on the drain, found someone cheaper.",
+    checks: [{ describe: "Walters drain → declined or cancelled", test: (ops) => ["declined", "cancelled"].includes(finalStatus(ops, ids.waltersDrain) ?? "") }],
+  },
+  {
+    id: "36-handwritten-list",
+    captureType: "image",
+    text: 'Kim job:\n- 2x 1-1/2" PVC couplings\n- 1 check valve 1-1/2"\n- PVC cement\n- primer',
+    checks: [
+      has("add_material", '2 × 1-1/2" PVC couplings on Kim', (a) => a.jobId === ids.kimSump && a.quantity === 2 && /coupling/i.test(a.description)),
+      has("add_material", "1 check valve on Kim", (a) => a.jobId === ids.kimSump && a.quantity === 1 && /check valve/i.test(a.description)),
+      // Cement and primer have no quantity; adding them or flagging the missing quantities are both right.
+      either(
+        { describe: "all four items on Kim", test: (ops) => ops.filter((o) => o.tool === "add_material" && o.args.jobId === ids.kimSump).length >= 4 },
+        has("flag_ambiguity", "asks for the cement/primer quantities", (a) => /cement|primer/i.test(`${a.question} ${a.sourceExcerpt ?? ""}`)),
+      ),
+    ],
+  },
+  {
+    id: "37-cannot-schedule-yet",
+    captureType: "audio",
+    text: "Put the Walters drain on the schedule for Wednesday the 7th in the afternoon.",
+    checks: [flags, none("schedule_job")],
+  },
+  {
+    id: "38-shorthand-parts",
+    captureType: "audio",
+    text: "WH at Henderson's: need a T&P and 2 dielectric unions.",
+    checks: [
+      has("add_material", "1 T&P relief valve on Henderson WH", (a) => a.jobId === ids.hendersonWaterHeater && a.quantity === 1 && /relief|t&p/i.test(a.description)),
+      has("add_material", "2 dielectric unions on Henderson WH", (a) => a.jobId === ids.hendersonWaterHeater && a.quantity === 2 && /dielectric/i.test(a.description)),
+    ],
+  },
+  {
+    id: "39-percent-discount",
+    captureType: "text",
+    text: "Henderson WH quote: knock 10% off the labor.",
+    checks: [
+      has("revise_quote", "labor $450, total $1,685, from the latest quote", (a) =>
+        a.jobId === ids.hendersonWaterHeater && a.basedOnQuoteId === ids.hendersonQuote && Math.abs(quoteTotal(a.lineItems) - 1685) < 0.01,
+      ),
+    ],
+  },
+  {
+    id: "40-which-of-two-jobs",
+    captureType: "audio",
+    text: "Call Maria back about her job, she had a question.",
+    checks: [
+      either(has("add_note", "reminder on Maria's client record", (a) => a.clientId === ids.maria), flags),
+      { describe: "no status changes", test: (ops) => !ops.some((o) => o.tool === "request_status_change" || o.tool === "schedule_job") },
     ],
   },
 ];

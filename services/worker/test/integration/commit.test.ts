@@ -24,9 +24,9 @@ describe("approveChangeSet", () => {
     const [client] = await sql`select name from clients where id = ${clientId} and org_id = ${org.orgId}`;
     const [job] = await sql`select client_id, job_type, status, site_id from jobs where id = ${jobId}`;
     const [material] = await sql`select unit_cost_cents, status from material_items where job_id = ${jobId}`;
-    const [site] = await sql`select line1, client_id from sites where client_id = ${clientId}`;
+    const [site] = await sql`select id, line1, client_id from sites where client_id = ${clientId}`;
     expect(client!.name).toBe("Ada Lovelace");
-    expect(job).toMatchObject({ clientId, jobType: "water heater", status: "lead", siteId: null });
+    expect(job).toMatchObject({ clientId, jobType: "water heater", status: "lead", siteId: site!.id }); // no site given → the client's only site
     expect(material).toMatchObject({ unitCostCents: "89999", status: "needed" });
     expect(site).toMatchObject({ line1: "12 Elm St", clientId });
 
@@ -38,6 +38,20 @@ describe("approveChangeSet", () => {
     expect(changeSet).toMatchObject({ status: "approved", reviewedBy: org.userId, tempIdMap: result.tempIdMap });
     const [capture] = await sql`select status from captures where id = ${captureId}`;
     expect(capture!.status).toBe("committed");
+  });
+
+  it("puts a job with no site on its client's only site", async () => {
+    const org = await seedOrg();
+    const { changeSetId } = await stageChangeSet(org, [
+      { tool: "create_client", args: { tempId: "$c1", name: "Priya Shah", siteAddress: { line1: "9 Willow Way" } } },
+      { tool: "create_job", args: { tempId: "$j1", clientId: "$c1", title: "Tankless quote" } },
+    ]);
+    const result = await approveChangeSet(sql, { changeSetId, userId: org.userId });
+    if (!result.ok) throw new Error(JSON.stringify(result.issues));
+    const [job] = await sql`select j.site_id, s.line1 from jobs j join sites s on s.id = j.site_id where j.id = ${result.tempIdMap.$j1!}`;
+    expect(job!.line1).toBe("9 Willow Way");
+    const sites = await sql`select 1 from sites where client_id = ${result.tempIdMap.$c1!}`;
+    expect(sites).toHaveLength(1);
   });
 
   it("rejects a ChangeSet whose job changed after it was proposed, and applies nothing", async () => {
