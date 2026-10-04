@@ -16,6 +16,8 @@ const envSchema = z.object({
   PLANNER_EFFORT: z.enum(["minimal", "low", "medium", "high"]).default("medium"),
   /** Speech-to-text model via OpenRouter, for voice notes. */
   TRANSCRIBE_MODEL: z.string().default("openai/gpt-transcribe"),
+  /** Vision model via OpenRouter that reads photos of notes and receipts into text. */
+  READ_IMAGE_MODEL: z.string().default("google/gemini-3.8-flash"),
   /** IANA timezone for interpreting dates in captures (becomes a per-org setting later). */
   TIMEZONE: z.string().default("America/Chicago"),
 });

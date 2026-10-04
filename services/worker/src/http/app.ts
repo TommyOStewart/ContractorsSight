@@ -1,6 +1,14 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { answerQuestion, createAudioCapture, createTextCapture, type AudioDeps, type CaptureDeps } from "../capture/captureService";
+import {
+  answerQuestion,
+  createAudioCapture,
+  createImageCapture,
+  createTextCapture,
+  type AudioDeps,
+  type CaptureDeps,
+  type ImageDeps,
+} from "../capture/captureService";
 import { approveChangeSet, ChangeSetError, rejectChangeSet } from "../commit/changeSetService";
 import type { Sql } from "../db/sql";
 
@@ -14,6 +22,8 @@ export interface AppDeps {
   capture?: Omit<CaptureDeps, "sql">;
   /** Speech-to-text wiring; voice captures are disabled (503) without it. */
   audio?: AudioDeps;
+  /** Photo reading; photo captures are disabled (503) without it. */
+  images?: ImageDeps;
 }
 
 type Env = { Variables: { userId: string; accessToken: string } };
@@ -24,7 +34,7 @@ const uuid = z.uuid();
  * The worker's HTTP API. Every route requires the user's Supabase access token; the worker then
  * acts with database-level access, so each handler checks org membership itself.
  */
-export function createApp({ sql, verifyUser, capture, audio }: AppDeps) {
+export function createApp({ sql, verifyUser, capture, audio, images }: AppDeps) {
   const app = new Hono<Env>();
 
   app.get("/health", (c) => c.json({ ok: true }));
@@ -73,6 +83,19 @@ export function createApp({ sql, verifyUser, capture, audio }: AppDeps) {
     if (!body.success) return c.json({ error: "Invalid recording." }, 400);
     const result = await createAudioCapture(
       { sql, ...capture, ...audio },
+      { userId: c.get("userId"), accessToken: c.get("accessToken"), ...body.data },
+    );
+    return c.json(result, 201);
+  });
+
+  const imageBody = z.object({ orgId: uuid, imagePaths: z.array(z.string().min(1).max(500)).min(1).max(5) });
+
+  app.post("/captures/image", async (c) => {
+    if (!capture || !images) return c.json({ error: "Photos aren't configured on this worker." }, 503);
+    const body = imageBody.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json({ error: "Invalid photos." }, 400);
+    const result = await createImageCapture(
+      { sql, ...capture, ...images },
       { userId: c.get("userId"), accessToken: c.get("accessToken"), ...body.data },
     );
     return c.json(result, 201);

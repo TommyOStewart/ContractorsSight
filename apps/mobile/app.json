@@ -30,6 +30,13 @@
         {
           "microphonePermission": "ContractorSight uses the microphone so you can talk through job notes instead of typing."
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "ContractorSight uses the camera so you can snap receipts and handwritten job notes.",
+          "photosPermission": "ContractorSight reads photos you pick of receipts and job notes."
+        }
       ]
     ],
     "scheme": "contractorsight",

@@ -10,6 +10,7 @@ export default function AppLayout() {
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="type" options={{ presentation: 'modal' }} />
         <Stack.Screen name="record" options={{ presentation: 'fullScreenModal', gestureEnabled: false }} />
+        <Stack.Screen name="photo" options={{ presentation: 'modal' }} />
         <Stack.Screen name="review/[id]" />
         <Stack.Screen name="account" options={{ presentation: 'modal' }} />
       </Stack>

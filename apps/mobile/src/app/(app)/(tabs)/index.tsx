@@ -1,10 +1,9 @@
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSession } from '../../../auth/SessionProvider';
 import { usePending } from '../../../data/PendingProvider';
-import { Body, colors, Display, Eyebrow, fonts, Message, Screen, SecondaryButton, Small } from '../../../ui';
+import { Body, colors, Display, Eyebrow, fonts, Screen, SecondaryButton, Small } from '../../../ui';
 
 const initials = (email?: string) => (email ?? '?').slice(0, 2).toUpperCase();
 
@@ -12,7 +11,6 @@ export default function CaptureScreen() {
   const { session, memberships } = useSession();
   const { items } = usePending();
   const company = memberships[0]!;
-  const [notice, setNotice] = useState<string | null>(null);
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
 
   return (
@@ -58,10 +56,9 @@ export default function CaptureScreen() {
         </View>
       </View>
 
-      <Message text={notice} tone="success" />
       <View style={styles.row}>
         <View style={{ flex: 1 }}>
-          <SecondaryButton title="Photo" icon="camera" onPress={() => setNotice('Photos of notes and receipts are coming soon.')} />
+          <SecondaryButton title="Photo" icon="camera" onPress={() => router.push('/photo')} />
         </View>
         <View style={{ flex: 1 }}>
           <SecondaryButton title="Type" icon="type" onPress={() => router.push('/type')} />

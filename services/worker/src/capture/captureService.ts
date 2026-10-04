@@ -8,6 +8,7 @@ import { buildCaptureMessage, buildSystemPrompt } from "../planner/prompt";
 import { runPlanner } from "../planner/runPlanner";
 import type { ChatModel } from "../planner/types";
 import type { Transcriber } from "../speech/transcriber";
+import type { ImageReader } from "../vision/imageReader";
 
 export interface CaptureDeps {
   sql: Sql;
@@ -192,10 +193,22 @@ export async function answerQuestion(
   }
 }
 
+/** Fetches an uploaded capture file from storage, as the user (so storage RLS applies). */
+export type DownloadFile = (accessToken: string, storagePath: string) => Promise<Uint8Array>;
+
 export interface AudioDeps {
   transcriber: Transcriber;
-  /** Fetches the uploaded recording from storage, as the user (so storage RLS applies). */
-  downloadAudio(accessToken: string, storagePath: string): Promise<Uint8Array>;
+  downloadFile: DownloadFile;
+}
+
+export interface ImageDeps {
+  imageReader: ImageReader;
+  downloadFile: DownloadFile;
+}
+
+/** Uploaded files must sit under the org's folder in the captures bucket. */
+function requireOrgPath(orgId: string, path: string) {
+  if (!path.startsWith(`${orgId}/`) || path.includes("..")) throw new ChangeSetError(404, "File not found.");
 }
 
 /**
@@ -208,9 +221,7 @@ export async function createAudioCapture(
 ): Promise<CaptureResult & { transcript: string }> {
   const { sql } = deps;
   await requireMember(sql, input.orgId, input.userId);
-  if (!input.audioPath.startsWith(`${input.orgId}/`) || input.audioPath.includes("..")) {
-    throw new ChangeSetError(404, "Recording not found.");
-  }
+  requireOrgPath(input.orgId, input.audioPath);
 
   const [capture] = await sql<{ id: string }[]>`
     insert into captures (org_id, created_by, type, status)
@@ -222,7 +233,7 @@ export async function createAudioCapture(
     values (${input.orgId}, ${input.audioPath}, 'audio/mp4', ${captureId}, ${input.userId})`;
 
   try {
-    const audio = await deps.downloadAudio(input.accessToken, input.audioPath);
+    const audio = await deps.downloadFile(input.accessToken, input.audioPath);
     const { text, costUsd } = await deps.transcriber.transcribe(audio, "m4a");
     console.log(`capture ${captureId}: transcribed ${audio.byteLength} bytes, $${costUsd.toFixed(4)} (${deps.transcriber.id})`);
     if (!text) {
@@ -231,6 +242,53 @@ export async function createAudioCapture(
     }
     await sql`update captures set raw_text = ${text} where id = ${captureId}`;
     const result = await planCapture(deps, { captureId, captureType: "audio", orgId: input.orgId, text });
+    return { ...result, transcript: text };
+  } catch (error) {
+    return failCapture(sql, captureId, error);
+  }
+}
+
+/**
+ * Photos of notes or receipts → text → pending ChangeSet. The phone has already uploaded each image
+ * to the `captures` bucket under `<org id>/…`; every page is kept as an attachment.
+ */
+export async function createImageCapture(
+  deps: CaptureDeps & ImageDeps,
+  input: { userId: string; orgId: string; accessToken: string; imagePaths: string[] },
+): Promise<CaptureResult & { transcript: string }> {
+  const { sql } = deps;
+  await requireMember(sql, input.orgId, input.userId);
+  for (const path of input.imagePaths) requireOrgPath(input.orgId, path);
+
+  const [capture] = await sql<{ id: string }[]>`
+    insert into captures (org_id, created_by, type, status)
+    values (${input.orgId}, ${input.userId}, 'image', 'processing')
+    returning id`;
+  const captureId = capture!.id;
+  for (const path of input.imagePaths) {
+    await sql`
+      insert into attachments (org_id, storage_path, mime_type, capture_id, uploaded_by)
+      values (${input.orgId}, ${path}, 'image/jpeg', ${captureId}, ${input.userId})`;
+  }
+
+  try {
+    const images = await Promise.all(
+      input.imagePaths.map(async (path) => ({ bytes: await deps.downloadFile(input.accessToken, path), mimeType: "image/jpeg" })),
+    );
+    const { text, costUsd } = await deps.imageReader.read(images);
+    console.log(`capture ${captureId}: read ${images.length} photo(s), $${costUsd.toFixed(4)} (${deps.imageReader.id})`);
+    if (!text) {
+      await sql`update captures set status = 'failed', error = 'No readable text' where id = ${captureId}`;
+      return {
+        captureId,
+        changeSetId: null,
+        summary: "We couldn't read any writing in that photo. Try again with more light, closer up.",
+        issues: [],
+        transcript: "",
+      };
+    }
+    await sql`update captures set raw_text = ${text} where id = ${captureId}`;
+    const result = await planCapture(deps, { captureId, captureType: "image", orgId: input.orgId, text });
     return { ...result, transcript: text };
   } catch (error) {
     return failCapture(sql, captureId, error);
