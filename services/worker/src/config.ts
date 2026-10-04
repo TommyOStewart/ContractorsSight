@@ -14,6 +14,8 @@ const envSchema = z.object({
   OPENROUTER_API_KEY: z.string().min(1).optional(),
   PLANNER_MODEL: z.string().default("openai/gpt-6.1-sol"),
   PLANNER_EFFORT: z.enum(["minimal", "low", "medium", "high"]).default("medium"),
+  /** Speech-to-text model via OpenRouter, for voice notes. */
+  TRANSCRIBE_MODEL: z.string().default("openai/gpt-transcribe"),
   /** IANA timezone for interpreting dates in captures (becomes a per-org setting later). */
   TIMEZONE: z.string().default("America/Chicago"),
 });

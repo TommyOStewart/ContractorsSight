@@ -21,16 +21,16 @@ pnpm workspaces, with `nodeLinker: hoisted` (set in `pnpm-workspace.yaml`) becau
  phone                         worker (service role)                           phone
  ─────                         ─────────────────────                           ─────
  Capture ──upload──▶ captures ──▶ text extraction ──▶ LLM planner ──▶ validate ──▶ change_sets (pending) ──▶ review diff
- (audio | image | text)          (STT / OCR, stubbed)  (tool calls,     │                                       │
-                                                         stubbed)       └─ issues fed back for repair (TODO)    ▼
+ (audio | image | text)          (speech-to-text;      (tool calls via  │                                       │
+                                  OCR not built yet)    OpenRouter)     └─ issues fed back once for repair      ▼
                                                                                                    approve ──▶ worker /approve
                                                                                                                re-validate, resolve temp IDs,
                                                                                                                apply ops, write audit_events
 ```
 
 1. **Capture.** Voice, image, and typed text are all a single `Capture` (`captures.type` = `audio | image | text`). Source files go to the private `captures` storage bucket under `<org_id>/…` and are linked through `attachments.capture_id`. There is one pipeline, not three.
-2. **Text extraction.** The worker turns the capture into text: speech-to-text for audio, OCR/vision for images, passthrough for text. These sit behind the `SpeechToText` and `ImageTextExtractor` interfaces in `services/worker/src/pipeline/ports.ts`. Only stubs exist today.
-3. **Planning.** The LLM gets the text, the org glossary (`glossary_terms`, e.g. "SB" = SharkBite fitting), and the tool definitions. It can call lookup tools (`find_client`, `find_job`), which the worker executes immediately. Every other tool call is collected into a `ChangeSetDraft`. This sits behind `ChangeSetPlanner` and is also a stub for now.
+2. **Text extraction.** The worker turns the capture into text. Typed text passes through. For audio, the phone uploads the recording to the `captures` bucket, and the worker downloads it with the user's own token (so storage policies apply), then transcribes it through the `Transcriber` interface (`services/worker/src/speech/`, OpenRouter, model set by `TRANSCRIBE_MODEL`). Photos (OCR/vision) are not built yet.
+3. **Planning.** `runPlanner` (`services/worker/src/planner/`) gives the model the text, records found by pre-searching the text, the org glossary (`glossary_terms`, e.g. "SB" = SharkBite fitting), the supply houses, and the tool definitions. Lookup tools (`find_client`, `find_job`) run immediately against Postgres; every other tool call is schema-checked and collected into a `ChangeSetDraft`, which is validated with one repair attempt. The model is set by `PLANNER_MODEL` (OpenRouter); `services/worker/evals/` compares models on 40 graded captures. If the model asks a question (`flag_ambiguity`), the contractor's answer re-plans the same capture (`capture_answers`).
 4. **Validation.** `validateChangeSet` in `packages/shared` (details below).
 5. **Review.** The draft is stored in `change_sets` with status `pending`, along with any validation issues. The phone shows it as a diff.
 6. **Commit.** The app calls `POST /change-sets/:id/approve` on the worker with the user's access token. In one transaction, `approveChangeSet` (`services/worker/src/commit`) locks the ChangeSet, checks the user belongs to its org, locks the touched jobs and re-runs `validateChangeSet` (versions included), resolves temp IDs, applies each operation through its applier, writes `audit_events`, and marks the ChangeSet `approved` and the capture `committed`. If re-validation fails, nothing is applied and the issues are saved on the ChangeSet. `POST /change-sets/:id/reject` marks both rejected.
@@ -45,7 +45,7 @@ These are architectural invariants. If a change seems to need one of them broken
 
 The LLM only emits tool calls. Tool calls become a staged `ChangeSet`. Nothing is committed until a human approves it. This is enforced structurally, not by convention:
 
-- The worker's pipeline (`processCapture`) has no write path to domain tables. Its only output is `ChangeSetStore.savePending`.
+- The capture path (`services/worker/src/capture/captureService.ts`) has no write path to domain tables. Its only output is a pending row in `change_sets`; domain writes happen only in `approveChangeSet`.
 - `change_sets` has no insert or update policy for app users, so approval can only happen through the worker's approve endpoint.
 - Even `draft_supply_order` creates only a draft. Sending an order to a supplier is a separate human action.
 
@@ -70,7 +70,7 @@ Some details that matter:
 
 ### 3. One capture type, one pipeline
 
-Audio, image, and text differ only at the text-extraction step. Everything after that is shared. Don't add a type-specific path downstream of `captureText()`.
+Audio, image, and text differ only at the text-extraction step. Everything after that is shared. Don't add a type-specific path downstream of `planCapture()`.
 
 ### 4. Every committed change writes an AuditEvent
 
@@ -157,10 +157,10 @@ The RLS helper functions (`is_org_member`, `has_org_role`) are `security definer
 
 ## Not built yet (intentionally)
 
-- UI beyond sign-in, company setup, and a placeholder home screen.
-- Real speech-to-text, OCR, and LLM calls. Stubs are in `services/worker/src/pipeline/stubs.ts`.
+- Photo capture (handwritten notes, receipts).
+- Invoices, payments, and business expenses (needed for the dashboard and tax views).
+- Editing records directly in the app (today every change goes through a capture).
 - Inviting teammates to a company.
-- The validate → LLM repair loop.
 - Offline sync between on-device SQLite and Supabase.
 - Supplier integrations (email/API order sending).
 

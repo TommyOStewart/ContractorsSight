@@ -7,6 +7,7 @@ import type { PostgresPlannerData } from "../planner/PostgresPlannerData";
 import { buildCaptureMessage, buildSystemPrompt } from "../planner/prompt";
 import { runPlanner } from "../planner/runPlanner";
 import type { ChatModel } from "../planner/types";
+import type { Transcriber } from "../speech/transcriber";
 
 export interface CaptureDeps {
   sql: Sql;
@@ -188,5 +189,50 @@ export async function answerQuestion(
     });
   } catch (error) {
     return failCapture(sql, row.captureId, error);
+  }
+}
+
+export interface AudioDeps {
+  transcriber: Transcriber;
+  /** Fetches the uploaded recording from storage, as the user (so storage RLS applies). */
+  downloadAudio(accessToken: string, storagePath: string): Promise<Uint8Array>;
+}
+
+/**
+ * Voice note → transcript → pending ChangeSet. The phone has already uploaded the recording to
+ * the `captures` bucket under `<org id>/…`; the attachment row keeps it with the capture.
+ */
+export async function createAudioCapture(
+  deps: CaptureDeps & AudioDeps,
+  input: { userId: string; orgId: string; accessToken: string; audioPath: string },
+): Promise<CaptureResult & { transcript: string }> {
+  const { sql } = deps;
+  await requireMember(sql, input.orgId, input.userId);
+  if (!input.audioPath.startsWith(`${input.orgId}/`) || input.audioPath.includes("..")) {
+    throw new ChangeSetError(404, "Recording not found.");
+  }
+
+  const [capture] = await sql<{ id: string }[]>`
+    insert into captures (org_id, created_by, type, status)
+    values (${input.orgId}, ${input.userId}, 'audio', 'processing')
+    returning id`;
+  const captureId = capture!.id;
+  await sql`
+    insert into attachments (org_id, storage_path, mime_type, capture_id, uploaded_by)
+    values (${input.orgId}, ${input.audioPath}, 'audio/mp4', ${captureId}, ${input.userId})`;
+
+  try {
+    const audio = await deps.downloadAudio(input.accessToken, input.audioPath);
+    const { text, costUsd } = await deps.transcriber.transcribe(audio, "m4a");
+    console.log(`capture ${captureId}: transcribed ${audio.byteLength} bytes, $${costUsd.toFixed(4)} (${deps.transcriber.id})`);
+    if (!text) {
+      await sql`update captures set status = 'failed', error = 'No speech heard' where id = ${captureId}`;
+      return { captureId, changeSetId: null, summary: "We couldn't hear anything in that recording. Try again a little closer to the phone.", issues: [], transcript: "" };
+    }
+    await sql`update captures set raw_text = ${text} where id = ${captureId}`;
+    const result = await planCapture(deps, { captureId, captureType: "audio", orgId: input.orgId, text });
+    return { ...result, transcript: text };
+  } catch (error) {
+    return failCapture(sql, captureId, error);
   }
 }

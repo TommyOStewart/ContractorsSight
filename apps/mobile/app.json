@@ -24,7 +24,13 @@
     "plugins": [
       "expo-router",
       "expo-splash-screen",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "ContractorSight uses the microphone so you can talk through job notes instead of typing."
+        }
+      ]
     ],
     "scheme": "contractorsight",
     "experiments": {

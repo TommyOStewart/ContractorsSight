@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from "vitest";
-import { answerQuestion, createTextCapture, localDay } from "../../src/capture/captureService";
+import { answerQuestion, createAudioCapture, createTextCapture, localDay } from "../../src/capture/captureService";
 import { approveChangeSet } from "../../src/commit/changeSetService";
 import { PostgresPlannerData } from "../../src/planner/PostgresPlannerData";
 import type { ChatModel, ChatResponse } from "../../src/planner/types";
@@ -117,5 +117,53 @@ describe("answering a question", () => {
     expect(rows.map((r) => r.status)).toEqual(["rejected", "pending"]);
     const [answer] = await sql`select question, answer from capture_answers where capture_id = ${first.captureId}`;
     expect(answer).toMatchObject({ question: "Which job?", answer: "Leaky water heater (Jeb Henderson)" });
+  });
+});
+
+describe("createAudioCapture", () => {
+  const transcriber = { id: "fake-stt", transcribe: async () => ({ text: "Henderson says the heater is leaking again", costUsd: 0 }) };
+
+  it("transcribes the recording, keeps it as an attachment, and plans from the transcript", async () => {
+    const org = await seedOrg();
+    const downloads: string[] = [];
+    const model = scripted([
+      { text: null, toolCalls: [{ id: "n1", name: "add_note", arguments: JSON.stringify({ jobId: org.jobId, body: "Leaking again" }) }], usage },
+      { text: "Added a note.", toolCalls: [], usage },
+    ]);
+    const path = `${org.orgId}/${crypto.randomUUID()}.m4a`;
+    const result = await createAudioCapture(
+      {
+        sql,
+        model,
+        data,
+        timezone: "America/New_York",
+        transcriber,
+        downloadAudio: async (_token, p) => {
+          downloads.push(p);
+          return new Uint8Array([1, 2, 3]);
+        },
+      },
+      { userId: org.userId, orgId: org.orgId, accessToken: "user-token", audioPath: path },
+    );
+    expect(downloads).toEqual([path]);
+    expect(result.transcript).toBe("Henderson says the heater is leaking again");
+    expect(result.changeSetId).toBeTruthy();
+    expect(model.prompts[0]).toContain("Voice note transcript");
+
+    const [capture] = await sql`select type, raw_text, status from captures where id = ${result.captureId}`;
+    expect(capture).toMatchObject({ type: "audio", rawText: "Henderson says the heater is leaking again", status: "ready_for_review" });
+    const [attachment] = await sql`select storage_path, mime_type from attachments where capture_id = ${result.captureId}`;
+    expect(attachment).toMatchObject({ storagePath: path, mimeType: "audio/mp4" });
+  });
+
+  it("refuses a recording path outside the user's company", async () => {
+    const org = await seedOrg();
+    const other = await seedOrg();
+    await expect(
+      createAudioCapture(
+        { sql, model: scripted([]), data, timezone: "America/New_York", transcriber, downloadAudio: async () => new Uint8Array() },
+        { userId: org.userId, orgId: org.orgId, accessToken: "t", audioPath: `${other.orgId}/x.m4a` },
+      ),
+    ).rejects.toMatchObject({ status: 404 });
   });
 });

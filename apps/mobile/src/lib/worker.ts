@@ -57,6 +57,8 @@ export interface CaptureResult {
 
 export const worker = {
   createCapture: (input: { orgId: string; text: string; targetJobId?: string }) => call<CaptureResult>('/captures', input),
+  /** The recording is already uploaded to the `captures` bucket at `audioPath`. */
+  createAudioCapture: (input: { orgId: string; audioPath: string }) => call<CaptureResult & { transcript: string }>('/captures/audio', input),
   /** `include`: indexes of the operations to save; omit to save all. */
   approve: (changeSetId: string, include?: number[]) =>
     call<{ ok: true; tempIdMap: Record<string, string> }>(`/change-sets/${changeSetId}/approve`, include ? { include } : {}),

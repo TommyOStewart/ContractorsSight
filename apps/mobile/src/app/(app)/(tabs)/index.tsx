@@ -47,7 +47,7 @@ export default function CaptureScreen() {
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Talk"
-          onPress={() => setNotice('Talking is coming in the next update. Tap Type below for now.')}
+          onPress={() => router.push('/record')}
           style={({ pressed }) => [styles.mic, pressed && { transform: [{ scale: 0.97 }] }]}
         >
           <Feather name="mic" size={72} color={colors.onAccent} />
