@@ -114,3 +114,46 @@ describe("expenses", () => {
     expect(expense).toMatchObject({ category: "tools_equipment", totalCents: "18900", description: "Impact driver", jobId: null });
   });
 });
+
+describe("dashboard_summary", () => {
+  /** Calls the function as a signed-in user, through row-level security. */
+  async function summaryAs(userId: string, orgId: string) {
+    return sql.begin(async (tx) => {
+      await tx`select set_config('role', 'authenticated', true)`;
+      await tx`select set_config('request.jwt.claims', ${JSON.stringify({ sub: userId, role: "authenticated" })}, true)`;
+      const [row] = await tx<{ summary: Record<string, any> }[]>`select public.dashboard_summary(${orgId}) as summary`; // eslint-disable-line @typescript-eslint/no-explicit-any
+      return row!.summary;
+    });
+  }
+
+  it("adds up payments, money owed, expenses, and profit by job type", async () => {
+    const org = await seedOrg();
+    await sql`update jobs set job_type = 'water heater replacement' where id = ${org.jobId}`;
+    await commit(org, [{ ...QUOTE, args: { ...QUOTE.args, jobId: org.jobId } }]);
+    const billed = await commit(org, [{ tool: "create_invoice", args: { tempId: "$i1", jobId: org.jobId } }]);
+    await commit(org, [{ tool: "record_payment", args: { invoiceId: billed.tempIdMap.$i1!, amountDollars: 1000 } }]);
+    await commit(org, [
+      { tool: "record_purchase", args: { jobId: org.jobId, vendorName: "Ferguson", totalDollars: 300, lines: [{ description: "Heater", quantity: 1, unitCostDollars: 300 }] } },
+      { tool: "record_expense", args: { category: "vehicle", totalDollars: 60, description: "Fuel" } },
+    ]);
+
+    const s = await summaryAs(org.userId, org.orgId);
+    expect(s.paidByMonth).toHaveLength(12);
+    expect(s.paidByMonth.at(-1).cents).toBe(100000);
+    expect(s.owed).toMatchObject({ cents: 65000, invoices: 1 });
+    expect(s.expensesTotal).toMatchObject({ cents: 36000, count: 2 });
+    expect(s.expensesByCategory.map((e: { category: string }) => e.category).sort()).toEqual(["materials", "vehicle"]);
+    expect(s.materialsBySupplier).toEqual([{ name: "Ferguson", cents: 30000 }]);
+    expect(s.profitByJobType).toMatchObject([{ jobType: "water heater replacement", paidCents: 100000, materialCents: 30000, profitCents: 70000 }]);
+    expect(s.missingReceipts).toBe(2);
+  });
+
+  it("shows another company's user nothing", async () => {
+    const org = await seedOrg();
+    const outsider = await seedOrg();
+    await commit(org, [{ tool: "record_expense", args: { category: "vehicle", totalDollars: 60, description: "Fuel" } }]);
+    const s = await summaryAs(outsider.userId, org.orgId);
+    expect(s.expensesTotal).toMatchObject({ cents: 0, count: 0 });
+    expect(s.jobsByStatus).toEqual({});
+  });
+});
