@@ -9,6 +9,13 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().default(8787),
   /** 0.0.0.0 so a phone on the same Wi-Fi can reach a worker running on a dev PC. */
   HOST: z.string().default("0.0.0.0"),
+
+  /** Planner model via OpenRouter. Without a key the worker runs, but captures return 503. */
+  OPENROUTER_API_KEY: z.string().min(1).optional(),
+  PLANNER_MODEL: z.string().default("openai/gpt-6.1-sol"),
+  PLANNER_EFFORT: z.enum(["minimal", "low", "medium", "high"]).default("medium"),
+  /** IANA timezone for interpreting dates in captures (becomes a per-org setting later). */
+  TIMEZONE: z.string().default("America/Chicago"),
 });
 
 export type Config = z.infer<typeof envSchema>;
