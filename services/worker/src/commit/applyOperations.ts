@@ -91,7 +91,12 @@ const APPLIERS: { [N in StagedToolName]: Applier<N> } = {
   },
 
   async create_job(args, ctx) {
-    const siteId = args.siteAddress ? ((await createSite(ctx, args.clientId, args.siteAddress)).id as string) : args.siteId;
+    let siteId = args.siteAddress ? ((await createSite(ctx, args.clientId, args.siteAddress)).id as string) : args.siteId;
+    if (!siteId) {
+      // No site given: use the client's site if it has exactly one (e.g. created with the client just now).
+      const sites = await ctx.tx<{ id: string }[]>`select id from sites where client_id = ${args.clientId} and org_id = ${ctx.orgId} limit 2`;
+      if (sites.length === 1) siteId = sites[0]!.id;
+    }
     const job = await insertOne(ctx, "jobs", {
       id: args.tempId,
       orgId: ctx.orgId,

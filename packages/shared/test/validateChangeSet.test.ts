@@ -318,3 +318,30 @@ describe("validateChangeSet: optimistic concurrency", () => {
     expect(result.ok).toBe(true);
   });
 });
+
+describe("validateChangeSet: duplicate sites", () => {
+  it("rejects repeating a new client's address on its job", async () => {
+    const result = await validate(
+      draft([
+        { tool: "create_client", args: { tempId: "$c1", name: "Priya Shah", siteAddress: { line1: "9 Willow Way" } } },
+        { tool: "create_job", args: { clientId: "$c1", title: "Tankless quote", siteAddress: { line1: "9 Willow Way" } } },
+      ]),
+    );
+    expectIssue(result, "BUSINESS_RULE", 1, ["siteAddress"]);
+  });
+
+  it("accepts the address on either one alone", async () => {
+    for (const ops of [
+      [
+        { tool: "create_client", args: { tempId: "$c1", name: "Priya Shah", siteAddress: { line1: "9 Willow Way" } } },
+        { tool: "create_job", args: { clientId: "$c1", title: "Tankless quote" } },
+      ],
+      [
+        { tool: "create_client", args: { tempId: "$c1", name: "Priya Shah" } },
+        { tool: "create_job", args: { clientId: "$c1", title: "Tankless quote", siteAddress: { line1: "9 Willow Way" } } },
+      ],
+    ]) {
+      expect((await validate(draft(ops))).ok).toBe(true);
+    }
+  });
+});

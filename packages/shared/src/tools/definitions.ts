@@ -81,7 +81,9 @@ export const createClient = defineTool({
     phone: optionalText(40, "Phone number as given."),
     email: z.email().optional().meta({ description: "Email address." }),
     notes: optionalText(2000, "Anything else worth remembering about the client."),
-    siteAddress: addressSchema.optional(),
+    siteAddress: addressSchema
+      .optional()
+      .meta({ description: "The client's service address, if mentioned. A job created for this client in the same capture uses it automatically; don't repeat it on create_job." }),
   }),
 });
 
@@ -89,7 +91,7 @@ export const createJob = defineTool({
   name: "create_job",
   kind: "mutation",
   description:
-    "Create a new job for a client. New jobs start in the `lead` status. Give either siteId (an existing site of this client) or siteAddress (a new site), not both.",
+    "Create a new job for a client. New jobs start in the `lead` status. Give either siteId (an existing site of this client) or siteAddress (a new site), not both. Omit both when the client has a single site, including a client created earlier in this capture with an address: the job uses that site.",
   input: z.strictObject({
     tempId: tempIdDecl("job").optional(),
     clientId: entityRef("client", "Client the job is for."),

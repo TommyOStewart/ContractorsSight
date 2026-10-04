@@ -396,7 +396,11 @@ export const CASES: EvalCase[] = [
     checks: [
       has("add_material", '2 × 1-1/2" PVC couplings on Kim', (a) => a.jobId === ids.kimSump && a.quantity === 2 && /coupling/i.test(a.description)),
       has("add_material", "1 check valve on Kim", (a) => a.jobId === ids.kimSump && a.quantity === 1 && /check valve/i.test(a.description)),
-      { describe: "all four items on Kim", test: (ops) => ops.filter((o) => o.tool === "add_material" && o.args.jobId === ids.kimSump).length >= 4 },
+      // Cement and primer have no quantity; adding them or flagging the missing quantities are both right.
+      either(
+        { describe: "all four items on Kim", test: (ops) => ops.filter((o) => o.tool === "add_material" && o.args.jobId === ids.kimSump).length >= 4 },
+        has("flag_ambiguity", "asks for the cement/primer quantities", (a) => /cement|primer/i.test(`${a.question} ${a.sourceExcerpt ?? ""}`)),
+      ),
     ],
   },
   {

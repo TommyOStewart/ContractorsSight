@@ -23,6 +23,8 @@ export class Projection {
   readonly sites = new Map<string, { clientId: string }>();
   readonly materials = new Map<string, { jobId: string; removed: boolean }>();
   readonly quotes = new Map<string, { jobId: string }>();
+  /** Temp IDs of clients created in this ChangeSet with a site address. */
+  readonly newClientsWithSite = new Set<string>();
 
   constructor(snapshots: Iterable<EntitySnapshot>) {
     for (const s of snapshots) {
@@ -114,13 +116,22 @@ function requireChanges(ctx: RuleContext, changes: object) {
  * without deciding its rules is a compile error.
  */
 export const BUSINESS_RULES: { [N in StagedToolName]: Rule<N> } = {
-  create_client() {},
+  create_client(args, ctx) {
+    if (args.tempId && args.siteAddress) ctx.projection.newClientsWithSite.add(args.tempId);
+  },
 
   create_job(args, ctx) {
     if (args.siteId && args.siteAddress) {
       ctx.report("BUSINESS_RULE", "Give either siteId or siteAddress, not both.", ["siteAddress"]);
     }
     if (args.siteId) siteBelongsToClient(ctx, args.siteId, args.clientId, ["siteId"]);
+    if (args.siteAddress && ctx.projection.newClientsWithSite.has(args.clientId)) {
+      ctx.report(
+        "BUSINESS_RULE",
+        "This client's address is already on create_client, which would create a duplicate site. Omit siteAddress here; the job uses the client's site.",
+        ["siteAddress"],
+      );
+    }
     if (args.tempId) {
       ctx.projection.jobs.set(args.tempId, {
         clientId: args.clientId,
