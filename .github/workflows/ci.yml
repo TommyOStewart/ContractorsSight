@@ -32,6 +32,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.119.0 # keep in sync with the supabase devDependency; "latest" hits GitHub API rate limits
       # Starts Postgres only and applies supabase/migrations + seed.sql; fails on any SQL error.
       - run: supabase db start
