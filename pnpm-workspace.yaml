@@ -1,0 +1,10 @@
+packages:
+  - apps/*
+  - services/*
+  - packages/*
+
+# Expo/React Native tooling expects a flat node_modules layout.
+nodeLinker: hoisted
+
+allowBuilds:
+  esbuild: true
