@@ -35,3 +35,21 @@ jobs:
           version: latest
       # Starts Postgres only and applies supabase/migrations + seed.sql; fails on any SQL error.
       - run: supabase db start
+
+  integration:
+    name: Worker integration tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.119.0
+      - run: supabase db start
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Uses the local stack's default connection string (see services/worker/test/integration/seed.ts).
+      - run: pnpm --filter @contractorsight/worker test:integration

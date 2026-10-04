@@ -1,7 +1,7 @@
 import { InMemoryRepository } from "@contractorsight/shared/testing";
 import { describe, expect, it } from "vitest";
-import { processCapture } from "../src/pipeline/processCapture";
-import { InMemoryChangeSetStore, stubImageText, stubPlanner, stubSpeechToText } from "../src/pipeline/stubs";
+import { processCapture } from "../../src/pipeline/processCapture";
+import { InMemoryChangeSetStore, stubImageText, stubPlanner, stubSpeechToText } from "../../src/pipeline/stubs";
 
 describe("processCapture (stubbed)", () => {
   it("stores a pending ChangeSet for a voice capture without writing anything else", async () => {
