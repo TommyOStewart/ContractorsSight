@@ -87,3 +87,17 @@ matches (two Jebs) side by side.
 
 **Single runs are noisy:** luna passed 27 in one run and failed it in another. Separating
 40/40 from 39/40 needs repeated runs.
+
+## 2026-10-04: repeatability (3 runs × 40 cases, pre-search on)
+
+Spend: $2.40. Aggregated with `pnpm eval:aggregate`.
+
+| Model | Pass rate | Valid first try | Avg $/capture | Avg model time | Avg turns |
+|---|---|---|---|---|---|
+| anthropic/claude-sonnet-5.5 | 120/120 (100%) | 100% | 1.44¢ | 5.3s | 2.2 |
+| openai/gpt-6.1-sol | 119/120 (99.2%) | 92% | 0.51¢ | 7.2s | 2.5 |
+| openai/gpt-6-luna | 118/120 (98.3%) | 90% | 0.04¢ | 6.7s | 2.5 |
+
+Misses were occasional, not systematic: luna once each on "tomorrow at 2" and the rambling note;
+gpt-6.1-sol once on the returning-spigot case. All three are accurate enough for this case set.
+Sonnet never needed the repair loop, which is why it's also the fastest per capture.

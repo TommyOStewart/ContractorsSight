@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
+import { createTextCapture, type CaptureDeps } from "../capture/captureService";
 import { approveChangeSet, ChangeSetError, rejectChangeSet } from "../commit/changeSetService";
 import type { Sql } from "../db/sql";
 
@@ -9,6 +10,8 @@ export type VerifyUser = (accessToken: string) => Promise<string | null>;
 export interface AppDeps {
   sql: Sql;
   verifyUser: VerifyUser;
+  /** Planner wiring; captures are disabled (503) without it. */
+  capture?: Omit<CaptureDeps, "sql">;
 }
 
 type Env = { Variables: { userId: string } };
@@ -19,17 +22,32 @@ const uuid = z.uuid();
  * The worker's HTTP API. Every route requires the user's Supabase access token; the worker then
  * acts with database-level access, so each handler checks org membership itself.
  */
-export function createApp({ sql, verifyUser }: AppDeps) {
+export function createApp({ sql, verifyUser, capture }: AppDeps) {
   const app = new Hono<Env>();
 
   app.get("/health", (c) => c.json({ ok: true }));
 
-  app.use("/change-sets/*", async (c, next) => {
+  app.use("*", async (c, next) => {
+    if (c.req.path === "/health") return next();
     const token = c.req.header("authorization")?.match(/^Bearer (.+)$/i)?.[1];
     const userId = token ? await verifyUser(token) : null;
     if (!userId) return c.json({ error: "Not signed in." }, 401);
     c.set("userId", userId);
     await next();
+  });
+
+  const captureBody = z.object({
+    orgId: uuid,
+    text: z.string().trim().min(1).max(20_000),
+    targetJobId: uuid.optional(),
+  });
+
+  app.post("/captures", async (c) => {
+    if (!capture) return c.json({ error: "Captures aren't configured on this worker." }, 503);
+    const body = captureBody.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json({ error: "Invalid capture." }, 400);
+    const result = await createTextCapture({ sql, ...capture }, { userId: c.get("userId"), ...body.data });
+    return c.json(result, 201);
   });
 
   app.post("/change-sets/:id/approve", async (c) => {

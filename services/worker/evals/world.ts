@@ -1,5 +1,6 @@
 import type { EntitySnapshot, JobStatus, ToolArgs } from "@contractorsight/shared";
 import { InMemoryRepository } from "@contractorsight/shared/testing";
+import { phoneDigits, searchWords } from "../src/planner/searchText";
 import type { CandidateFinder, GlossaryEntry, LookupExecutor } from "../src/planner/types";
 
 // A small, fixed plumbing business for the planner eval. IDs are readable on purpose so failures
@@ -193,21 +194,12 @@ export function evalRepository(): InMemoryRepository {
   return new InMemoryRepository(snapshots);
 }
 
-// Roughly what Postgres trigram search will feel like: meaningful words match, noise doesn't.
-const STOP_WORDS = new Set(["st", "ave", "rd", "ln", "ct", "the", "and", "job", "for", "new"]);
-const words = (s: string) =>
-  s
-    .toLowerCase()
-    // "Maria's" should match "Maria"; keep inner apostrophes ("O'Neil").
-    .replace(/['’]s\b/g, "")
-    .split(/[^a-z0-9']+/)
-    .filter((w) => w.length >= 3 && !STOP_WORDS.has(w) && !/^\d+$/.test(w));
-const digits = (s: string) => s.replace(/\D/g, "");
+// Same matching rules as the Postgres search: meaningful words match, noise doesn't.
 function score(query: string, haystack: string): number {
   const hay = haystack.toLowerCase();
-  const wordHits = words(query).filter((w) => hay.includes(w)).length;
+  const wordHits = searchWords(query).filter((w) => hay.includes(w)).length;
   // Phone numbers match only as a whole (7+ digits), not on shared prefixes like "555".
-  const phoneHits = (query.match(/[\d-]{7,}/g) ?? []).filter((p) => digits(hay).includes(digits(p))).length;
+  const phoneHits = phoneDigits(query).filter((d) => hay.replace(/\D/g, "").includes(d)).length;
   return wordHits + phoneHits;
 }
 
@@ -283,3 +275,6 @@ export const evalCandidates: CandidateFinder = {
 };
 
 export const fixtureSupplyHouses = supplyHouses;
+
+/** The raw fixture, for `pnpm seed:demo` (which inserts it into a real org under fresh IDs). */
+export const fixture = { clients, sites, jobs, materials, supplyHouses, glossary };
