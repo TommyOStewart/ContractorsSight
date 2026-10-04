@@ -8,3 +8,6 @@ dist/
 supabase/.branches
 supabase/.temp
 packages/shared/generated/
+
+# Planner eval outputs (transcripts, costs)
+services/worker/evals/results/

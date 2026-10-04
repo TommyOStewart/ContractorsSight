@@ -8,7 +8,8 @@
     "start": "tsx --env-file-if-exists=.env src/index.ts",
     "test": "vitest run test/unit",
     "typecheck": "tsc -p tsconfig.json",
-    "test:integration": "vitest run test/integration"
+    "test:integration": "vitest run test/integration",
+    "eval": "tsx --env-file-if-exists=.env evals/run.ts"
   },
   "dependencies": {
     "@contractorsight/shared": "workspace:*",
