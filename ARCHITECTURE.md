@@ -7,7 +7,7 @@ This document covers how the repo is laid out, how data flows, and the rules tha
 ## Repo layout
 
 ```
-apps/mobile/          Expo (React Native) app. Placeholder for now. Will hold on-device SQLite for offline use.
+apps/mobile/          Expo (React Native) app, Expo Router. Sign-in and company setup so far; will hold on-device SQLite for offline use.
 services/worker/      Node service that runs the capture pipeline. The only place LLM / speech-to-text keys live.
 packages/shared/      Domain types, LLM tool definitions, and the validation layer. Used by both of the above.
 supabase/migrations/  Postgres schema, row-level security, storage bucket.
@@ -144,11 +144,20 @@ The RLS helper functions (`is_org_member`, `has_org_role`) are `security definer
 | `audit_events` | Read; insert `manual` events as themselves; never update or delete |
 | `organizations`, `org_members` | Read their own; owners and admins manage |
 
+## Mobile app
+
+- Routes live in `apps/mobile/src/app` (Expo Router). The root layout picks one of three route groups with `Stack.Protected`: signed out → `sign-in`; signed in with no company → `create-company`; otherwise → `(app)`.
+- `SessionProvider` (`src/auth`) owns the Supabase session and the user's company memberships.
+- The app talks to Supabase directly with the **publishable** key and relies on RLS. It never holds a secret key and never calls an LLM. Config comes from `apps/mobile/.env` (see `.env.example`).
+- Sessions persist in AsyncStorage. Moving to encrypted storage (expo-secure-store) is a follow-up.
+- Companies are created through the `create_organization` RPC, which makes the caller the owner in the same transaction. There is deliberately no insert policy on `organizations`.
+- Typed queries: `pnpm db:types` regenerates `packages/shared/src/db/database.types.ts` from the local database. Run it after every migration.
+
 ## Not built yet (intentionally)
 
-- UI screens, beyond a placeholder that proves the app bundles against `packages/shared`.
+- UI beyond sign-in, company setup, and a placeholder home screen.
 - Real speech-to-text, OCR, and LLM calls. Stubs are in `services/worker/src/pipeline/stubs.ts`.
-- The commit RPC (approve → apply ops → audit), and org creation.
+- The commit RPC (approve → apply ops → audit), and inviting teammates to a company.
 - The validate → LLM repair loop.
 - Offline sync between on-device SQLite and Supabase.
 - Supplier integrations (email/API order sending).

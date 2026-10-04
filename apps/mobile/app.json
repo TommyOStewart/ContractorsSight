@@ -20,6 +20,14 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-splash-screen"
+    ],
+    "scheme": "contractorsight",
+    "experiments": {
+      "typedRoutes": true
     }
   }
 }
