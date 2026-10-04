@@ -10,4 +10,5 @@ export * from "./validation/issues";
 export * from "./validation/repository";
 export * from "./validation/validateChangeSet";
 export * from "./validation/resolveTempIds";
+export * from "./validation/baseJobVersions";
 export type { Database, Json } from "./db/database.types";
