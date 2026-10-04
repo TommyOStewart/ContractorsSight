@@ -1,24 +1,37 @@
 import type { ValidationIssue } from '@contractorsight/shared';
+import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Text } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { usePending } from '../../../data/PendingProvider';
 import { supabase } from '../../../lib/supabase';
 import { worker, WorkerError } from '../../../lib/worker';
 import { addTempNames, describeOperation, referencedIds, type Described, type Names } from '../../../review/describe';
-import { Body, Button, Card, colors, Heading, Message, Screen, Small } from '../../../ui';
+import { BigButton, Card, CheckRow, colors, Display, fonts, IconButton, Loading, Message, Screen, SectionLabel, Small, Strong, TextButton } from '../../../ui';
+
+type Args = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+
+interface Question {
+  question: string;
+  excerpt?: string;
+  options: string[];
+}
 
 interface Loaded {
   status: string;
   captureText: string;
-  items: Described[];
+  captureType: string;
+  createdAt: string;
+  /** Changes with their index in the stored operations (needed to approve a selection). */
+  changes: { index: number; described: Described }[];
+  questions: Question[];
   issues: ValidationIssue[];
 }
 
-async function loadNames(operations: { tool: string; args: Record<string, unknown> }[]): Promise<Names> {
+async function loadNames(operations: { tool: string; args: Args }[]): Promise<Names> {
   const ids = referencedIds(operations);
   const names: Names = { job: new Map(), client: new Map(), material: new Map(), supplyHouse: new Map(), site: new Map() };
   const list = (s: Set<string>) => [...s];
-
   const [jobs, clients, materials, supplyHouses, sites] = await Promise.all([
     ids.job.size ? supabase.from('jobs').select('id, title, clients (name)').in('id', list(ids.job)) : null,
     ids.client.size ? supabase.from('clients').select('id, name').in('id', list(ids.client)) : null,
@@ -26,52 +39,81 @@ async function loadNames(operations: { tool: string; args: Record<string, unknow
     ids.supplyHouse.size ? supabase.from('supply_houses').select('id, name').in('id', list(ids.supplyHouse)) : null,
     ids.site.size ? supabase.from('sites').select('id, line1, label').in('id', list(ids.site)) : null,
   ]);
-  for (const j of jobs?.data ?? []) names.job.set(j.id, `“${j.title}” (${j.clients?.name ?? 'unknown client'})`);
+  for (const j of jobs?.data ?? []) names.job.set(j.id, `${j.title} · ${j.clients?.name ?? 'unknown client'}`);
   for (const c of clients?.data ?? []) names.client.set(c.id, c.name);
-  for (const m of materials?.data ?? []) names.material.set(m.id, `${m.description} on “${m.jobs?.title ?? 'a job'}”`);
+  for (const m of materials?.data ?? []) names.material.set(m.id, `${m.description} (${m.jobs?.title ?? 'a job'})`);
   for (const s of supplyHouses?.data ?? []) names.supplyHouse.set(s.id, s.name);
   for (const s of sites?.data ?? []) names.site.set(s.id, s.label ? `${s.label} (${s.line1})` : s.line1);
-  addTempNames(operations as { tool: string; args: Record<string, any> }[], names); // eslint-disable-line @typescript-eslint/no-explicit-any
+  addTempNames(operations, names);
   return names;
 }
 
 export default function ReviewScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { refresh } = usePending();
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<'approve' | 'reject' | null>(null);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [showSaid, setShowSaid] = useState(false);
+  const [busy, setBusy] = useState<'save' | 'reject' | 'answer' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [issues, setIssues] = useState<ValidationIssue[]>([]);
+  const [typedAnswer, setTypedAnswer] = useState('');
 
   useEffect(() => {
+    setLoaded(null);
     (async () => {
       const { data, error } = await supabase
         .from('change_sets')
-        .select('status, operations, validation_issues, captures (raw_text)')
+        .select('status, created_at, operations, validation_issues, captures (raw_text, type)')
         .eq('id', id)
         .single();
       if (error || !data) {
-        setLoadError('Could not load these changes.');
+        setLoadError('Could not load this note.');
         return;
       }
-      const operations = (data.operations ?? []) as { tool: string; args: Record<string, any> }[]; // eslint-disable-line @typescript-eslint/no-explicit-any
+      const operations = (data.operations ?? []) as { tool: string; args: Args }[];
       const names = await loadNames(operations);
+      const changes: Loaded['changes'] = [];
+      const questions: Question[] = [];
+      operations.forEach((op, index) => {
+        if (op.tool === 'flag_ambiguity') {
+          questions.push({
+            question: op.args.question,
+            excerpt: op.args.sourceExcerpt,
+            options: (op.args.candidates ?? []).map((c: Args) => c.label as string),
+          });
+        } else changes.push({ index, described: describeOperation(op.tool, op.args, names) });
+      });
       setLoaded({
         status: data.status,
+        createdAt: data.created_at,
         captureText: data.captures?.raw_text ?? '',
-        items: operations.map((op) => describeOperation(op.tool, op.args, names)),
+        captureType: data.captures?.type ?? 'text',
+        changes,
+        questions,
         issues: (data.validation_issues ?? []) as unknown as ValidationIssue[],
       });
+      setSelected(new Set(changes.map((c) => c.index)));
     })();
   }, [id]);
 
-  async function act(kind: 'approve' | 'reject') {
+  function toggle(index: number) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  }
+
+  async function run(kind: 'save' | 'reject', action: () => Promise<unknown>) {
     setError(null);
     setIssues([]);
     setBusy(kind);
     try {
-      if (kind === 'approve') await worker.approve(id);
-      else await worker.reject(id);
+      await action();
+      void refresh();
       router.back();
     } catch (e) {
       if (e instanceof WorkerError) {
@@ -83,54 +125,181 @@ export default function ReviewScreen() {
     }
   }
 
-  if (loadError) return <Screen><Message text={loadError} tone="error" /></Screen>;
-  if (!loaded) return <Screen><ActivityIndicator color={colors.primary} /></Screen>;
+  async function answer(question: string, reply: string) {
+    if (!reply.trim()) return;
+    setError(null);
+    setBusy('answer');
+    try {
+      const result = await worker.answer(id, { question, answer: reply.trim() });
+      void refresh();
+      setTypedAnswer('');
+      if (result.changeSetId) router.replace(`/review/${result.changeSetId}`);
+      else router.back();
+    } catch (e) {
+      setError(e instanceof WorkerError ? e.message : 'Something went wrong sending your answer.');
+    } finally {
+      setBusy(null);
+    }
+  }
 
-  const questions = loaded.items.filter((i) => i.isQuestion);
-  const changes = loaded.items.filter((i) => !i.isQuestion);
+  if (loadError)
+    return (
+      <Screen>
+        <Message text={loadError} tone="error" />
+        <TextButton title="Back" onPress={() => router.back()} />
+      </Screen>
+    );
+  if (!loaded) return <Loading />;
+
+  const pending = loaded.status === 'pending';
+  const count = loaded.changes.filter((c) => selected.has(c.index)).length;
   const shownIssues = issues.length ? issues : loaded.issues;
+  const source = loaded.captureType === 'audio' ? 'voice note' : loaded.captureType === 'image' ? 'photo' : 'typed note';
+  const firstQuestion = loaded.questions[0];
 
   return (
-    <Screen align="top">
-      <Small>Your note</Small>
-      <Card>
-        <Text style={{ color: colors.text, fontSize: 15, lineHeight: 21 }}>{loaded.captureText}</Text>
-      </Card>
+    <Screen
+      footer={
+        pending && loaded.changes.length > 0 ? (
+          <>
+            <BigButton
+              title={count === 0 ? 'Nothing ticked' : `Save ${count} change${count === 1 ? '' : 's'}`}
+              icon="check"
+              disabled={count === 0 || busy === 'answer'}
+              busy={busy === 'save'}
+              onPress={() => run('save', () => worker.approve(id, count === loaded.changes.length ? undefined : [...selected]))}
+            />
+            <TextButton title="Throw it all out" busy={busy === 'reject'} onPress={() => run('reject', () => worker.reject(id))} />
+          </>
+        ) : pending ? (
+          <TextButton title="Throw it all out" busy={busy === 'reject'} onPress={() => run('reject', () => worker.reject(id))} />
+        ) : undefined
+      }
+    >
+      <View style={styles.header}>
+        <IconButton icon="chevron-left" label="Back" onPress={() => router.back()} />
+        <View style={{ flex: 1 }}>
+          <Display size={28}>Check these</Display>
+          <Small color={colors.muted}>From your {source}</Small>
+        </View>
+      </View>
 
-      {questions.length > 0 && <Heading>Needs your answer</Heading>}
-      {questions.map((q, i) => (
-        <Card key={`q${i}`} tone="question">
-          <Text style={{ color: colors.text, fontSize: 16, fontWeight: '600' }}>{q.title}</Text>
-          {q.details.map((d, j) => <Small key={j}>{d}</Small>)}
+      {busy === 'answer' && (
+        <Card>
+          <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+            <ActivityIndicator color={colors.accent} />
+            <Strong size={17}>Updating with your answer…</Strong>
+          </View>
         </Card>
-      ))}
+      )}
 
-      <Heading>Proposed changes</Heading>
-      {changes.length === 0 && <Small>No changes, only the question above.</Small>}
-      {changes.map((c, i) => (
-        <Card key={`c${i}`}>
-          <Text style={{ color: colors.text, fontSize: 16, fontWeight: '600' }}>{c.title}</Text>
-          {c.details.map((d, j) => <Small key={j}>{d}</Small>)}
-        </Card>
-      ))}
+      {pending &&
+        loaded.questions.map((q, i) => (
+          <Card key={`q${i}`} tone="accent" style={{ gap: 12 }}>
+            <Text style={styles.questionLabel}>{i === 0 ? 'Which one?' : 'Also'}</Text>
+            <Strong size={20}>{q.question}</Strong>
+            {q.excerpt && <Small>“{q.excerpt}”</Small>}
+            {q.options.map((option) => (
+              <Pressable
+                key={option}
+                accessibilityRole="button"
+                disabled={busy !== null}
+                onPress={() => answer(q.question, option)}
+                style={({ pressed }) => [styles.option, pressed && { opacity: 0.7 }]}
+              >
+                <Text style={styles.optionText}>{option}</Text>
+                <Feather name="chevron-right" size={22} color={colors.accent} />
+              </Pressable>
+            ))}
+            {i === 0 && (
+              <View style={styles.answerRow}>
+                <TextInput
+                  value={typedAnswer}
+                  onChangeText={setTypedAnswer}
+                  placeholder={q.options.length ? 'Or type an answer' : 'Type your answer'}
+                  placeholderTextColor={colors.muted}
+                  selectionColor={colors.accent}
+                  style={styles.answerInput}
+                  returnKeyType="send"
+                  onSubmitEditing={() => answer(q.question, typedAnswer)}
+                />
+                <IconButton icon="send" label="Send answer" onPress={() => answer(q.question, typedAnswer)} />
+              </View>
+            )}
+          </Card>
+        ))}
+
+      {loaded.changes.length > 0 && <SectionLabel>{pending ? (firstQuestion ? 'Ready to save anyway' : 'Ready to save') : 'Changes'}</SectionLabel>}
+      {loaded.changes.map(({ index, described }) =>
+        pending ? (
+          <CheckRow key={index} checked={selected.has(index)} onToggle={() => toggle(index)}>
+            <Strong>{described.title}</Strong>
+            {described.details.map((d, j) => (
+              <Small key={j}>{d}</Small>
+            ))}
+          </CheckRow>
+        ) : (
+          <Card key={index}>
+            <Strong>{described.title}</Strong>
+            {described.details.map((d, j) => (
+              <Small key={j}>{d}</Small>
+            ))}
+          </Card>
+        ),
+      )}
 
       {shownIssues.length > 0 && (
-        <Card tone="warning">
-          <Text style={{ color: colors.danger, fontWeight: '600' }}>These changes can't be saved as they are:</Text>
-          {shownIssues.map((iss, i) => <Small key={i}>• {iss.message}</Small>)}
+        <Card tone="danger">
+          <Strong size={17}>These can't be saved as they are:</Strong>
+          {shownIssues.map((iss, i) => (
+            <Small key={i}>• {iss.message}</Small>
+          ))}
         </Card>
       )}
       <Message text={error} tone="error" />
 
-      {loaded.status === 'pending' ? (
-        <>
-          <Button title="Approve all" onPress={() => act('approve')} busy={busy === 'approve'} />
-          <Button variant="link" title="Reject" onPress={() => act('reject')} busy={busy === 'reject'} />
-          <Small>Nothing is saved until you approve. Answering questions comes in a later version; for now, reject and send a clearer note.</Small>
-        </>
-      ) : (
-        <Body muted>Already {loaded.status}.</Body>
-      )}
+      <Pressable accessibilityRole="button" accessibilityState={{ expanded: showSaid }} onPress={() => setShowSaid(!showSaid)} style={styles.said}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Text style={styles.saidLabel}>What you said</Text>
+          <Feather name={showSaid ? 'chevron-up' : 'chevron-down'} size={22} color={colors.muted} />
+        </View>
+        {showSaid && <Small>“{loaded.captureText}”</Small>}
+      </Pressable>
+
+      {!pending && <Small color={colors.muted}>This note was already {loaded.status === 'approved' ? 'saved' : 'thrown out'}.</Small>}
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  header: { flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: -12 },
+  questionLabel: { fontFamily: fonts.bold, fontSize: 14, color: colors.accent, textTransform: 'uppercase', letterSpacing: 1.1 },
+  option: {
+    minHeight: 58,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: colors.accentEdge,
+    backgroundColor: '#1F1A14',
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  optionText: { flex: 1, fontFamily: fonts.bold, fontSize: 18, color: colors.text },
+  answerRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  answerInput: {
+    flex: 1,
+    minHeight: 52,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: colors.accentEdge,
+    backgroundColor: '#1F1A14',
+    color: colors.text,
+    fontFamily: fonts.body,
+    fontSize: 17,
+    paddingHorizontal: 14,
+  },
+  said: { borderRadius: 14, borderWidth: 1, borderColor: colors.divider, backgroundColor: colors.surfaceSunk, padding: 14, gap: 8, minHeight: 56, justifyContent: 'center' },
+  saidLabel: { fontFamily: fonts.semibold, fontSize: 16, color: colors.muted },
+});

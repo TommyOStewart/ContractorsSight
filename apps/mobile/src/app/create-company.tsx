@@ -1,7 +1,8 @@
 import { useState } from 'react';
+import { View } from 'react-native';
 import { useSession } from '../auth/SessionProvider';
 import { supabase } from '../lib/supabase';
-import { Body, Button, Field, Message, Screen, Title } from '../ui';
+import { BigButton, Body, colors, Display, Field, Message, Screen, Small, TextButton } from '../ui';
 
 export default function CreateCompanyScreen() {
   const { session, refreshMemberships, signOut } = useSession();
@@ -30,16 +31,16 @@ export default function CreateCompanyScreen() {
   }
 
   return (
-    <Screen>
-      <Title>Set up your company</Title>
-      <Body muted>
-        Clients, jobs, and quotes belong to a company, so teammates you add later can see the same work.
-      </Body>
-      <Field label="Company name" value={name} onChangeText={setName} autoCapitalize="words" onSubmitEditing={create} />
+    <Screen center>
+      <View style={{ gap: 6, marginBottom: 8 }}>
+        <Display size={40}>Your company</Display>
+        <Body muted>Clients and jobs belong to a company, so people you add later see the same work.</Body>
+      </View>
+      <Field label="Company name" value={name} onChangeText={setName} autoCapitalize="words" onSubmitEditing={create} placeholder="e.g. Stewart Plumbing" />
       <Message text={error} tone="error" />
-      <Button title="Create company" onPress={create} busy={busy} />
-      <Body muted>Signed in as {session?.user.email}</Body>
-      <Button variant="link" title="Sign out" onPress={signOut} />
+      <BigButton title="Create company" onPress={create} busy={busy} />
+      <Small color={colors.muted}>Signed in as {session?.user.email}</Small>
+      <TextButton title="Sign out" onPress={signOut} />
     </Screen>
   );
 }

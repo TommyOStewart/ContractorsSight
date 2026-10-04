@@ -1,6 +1,7 @@
 import { useState } from 'react';
+import { View } from 'react-native';
 import { supabase } from '../lib/supabase';
-import { Body, Button, Field, Message, Screen, Title } from '../ui';
+import { BigButton, Body, Display, Eyebrow, Field, Message, Screen, TextButton } from '../ui';
 
 type Mode = 'signIn' | 'signUp';
 
@@ -25,7 +26,7 @@ export default function SignInScreen() {
       if (mode === 'signIn') {
         const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
         if (error) setError(error.message);
-        // On success the session listener moves us on; nothing else to do here.
+        // On success the session listener moves us on.
       } else {
         const { data, error } = await supabase.auth.signUp({
           email: email.trim(),
@@ -50,13 +51,14 @@ export default function SignInScreen() {
   }
 
   return (
-    <Screen>
-      <Title>ContractorSight</Title>
-      <Body muted>{mode === 'signIn' ? 'Sign in to your account.' : 'Create your account.'}</Body>
+    <Screen center>
+      <View style={{ gap: 6, marginBottom: 8 }}>
+        <Eyebrow>ContractorSight</Eyebrow>
+        <Display size={40}>{mode === 'signIn' ? 'Welcome back' : 'Get set up'}</Display>
+        <Body muted>{mode === 'signIn' ? 'Sign in to your account.' : 'Create your account. It takes a minute.'}</Body>
+      </View>
 
-      {mode === 'signUp' && (
-        <Field label="Your name" value={fullName} onChangeText={setFullName} autoComplete="name" textContentType="name" />
-      )}
+      {mode === 'signUp' && <Field label="Your name" value={fullName} onChangeText={setFullName} autoComplete="name" textContentType="name" />}
       <Field
         label="Email"
         value={email}
@@ -79,12 +81,8 @@ export default function SignInScreen() {
       <Message text={error} tone="error" />
       <Message text={notice} tone="success" />
 
-      <Button title={mode === 'signIn' ? 'Sign in' : 'Create account'} onPress={submit} busy={busy} />
-      <Button
-        variant="link"
-        title={mode === 'signIn' ? 'New here? Create an account' : 'Already have an account? Sign in'}
-        onPress={switchMode}
-      />
+      <BigButton title={mode === 'signIn' ? 'Sign in' : 'Create account'} onPress={submit} busy={busy} />
+      <TextButton title={mode === 'signIn' ? 'New here? Create an account' : 'Already have an account? Sign in'} onPress={switchMode} />
     </Screen>
   );
 }

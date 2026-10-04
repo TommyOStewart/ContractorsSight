@@ -162,3 +162,35 @@ describe("HTTP API", () => {
     expect(await twice.json()).toEqual({ error: "Change set is already approved." });
   });
 });
+
+describe("approving a selection", () => {
+  it("applies only the ticked operations", async () => {
+    const org = await seedOrg();
+    const { changeSetId } = await stageChangeSet(org, [
+      { tool: "add_note", args: { clientId: org.clientId, body: "skip me" } },
+      { tool: "add_note", args: { clientId: org.clientId, body: "keep me" } },
+    ]);
+    expect((await approveChangeSet(sql, { changeSetId, userId: org.userId, include: [1] })).ok).toBe(true);
+    const notes = await sql`select body from notes where client_id = ${org.clientId}`;
+    expect(notes.map((n) => n.body)).toEqual(["keep me"]);
+  });
+
+  it("refuses a selection that drops something a kept change depends on", async () => {
+    const org = await seedOrg();
+    const { changeSetId } = await stageChangeSet(org, [
+      { tool: "create_client", args: { tempId: "$c1", name: "Priya Shah" } },
+      { tool: "create_job", args: { clientId: "$c1", title: "Tankless quote" } },
+    ]);
+    const result = await approveChangeSet(sql, { changeSetId, userId: org.userId, include: [1] });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.issues.map((i) => i.code)).toEqual(["UNKNOWN_TEMP_ID"]);
+    const [cs] = await sql`select status from change_sets where id = ${changeSetId}`;
+    expect(cs!.status).toBe("pending");
+  });
+
+  it("refuses an empty selection", async () => {
+    const org = await seedOrg();
+    const { changeSetId } = await stageChangeSet(org, [{ tool: "add_note", args: { clientId: org.clientId, body: "x" } }]);
+    await expect(approveChangeSet(sql, { changeSetId, userId: org.userId, include: [] })).rejects.toMatchObject({ status: 409 });
+  });
+});

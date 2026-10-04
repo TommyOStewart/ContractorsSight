@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { createTextCapture, type CaptureDeps } from "../capture/captureService";
+import { answerQuestion, createTextCapture, type CaptureDeps } from "../capture/captureService";
 import { approveChangeSet, ChangeSetError, rejectChangeSet } from "../commit/changeSetService";
 import type { Sql } from "../db/sql";
 
@@ -36,6 +36,9 @@ export function createApp({ sql, verifyUser, capture }: AppDeps) {
     await next();
   });
 
+  const approveBody = z.object({ include: z.array(z.int().nonnegative()).max(200).optional() });
+  const answerBody = z.object({ question: z.string().trim().min(1).max(1000), answer: z.string().trim().min(1).max(1000) });
+
   const captureBody = z.object({
     orgId: uuid,
     text: z.string().trim().min(1).max(20_000),
@@ -53,8 +56,20 @@ export function createApp({ sql, verifyUser, capture }: AppDeps) {
   app.post("/change-sets/:id/approve", async (c) => {
     const id = uuid.safeParse(c.req.param("id"));
     if (!id.success) return c.json({ error: "Change set not found." }, 404);
-    const result = await approveChangeSet(sql, { changeSetId: id.data, userId: c.get("userId") });
+    const body = approveBody.safeParse(await c.req.json().catch(() => ({})));
+    if (!body.success) return c.json({ error: "Invalid selection." }, 400);
+    const result = await approveChangeSet(sql, { changeSetId: id.data, userId: c.get("userId"), include: body.data.include });
     return result.ok ? c.json(result) : c.json(result, 409);
+  });
+
+  app.post("/change-sets/:id/answer", async (c) => {
+    if (!capture) return c.json({ error: "Captures aren't configured on this worker." }, 503);
+    const id = uuid.safeParse(c.req.param("id"));
+    if (!id.success) return c.json({ error: "Change set not found." }, 404);
+    const body = answerBody.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json({ error: "Invalid answer." }, 400);
+    const result = await answerQuestion({ sql, ...capture }, { userId: c.get("userId"), changeSetId: id.data, ...body.data });
+    return c.json(result, 201);
   });
 
   app.post("/change-sets/:id/reject", async (c) => {
