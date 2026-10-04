@@ -130,6 +130,10 @@ export class PostgresPlannerData implements LookupExecutor, CandidateFinder {
           select quote_id, kind, description, quantity, unit, unit_price_cents, material_item_id
           from quote_line_items where quote_id = any(${quotes.map((q) => q.id)}::uuid[]) order by position`
       : [];
+    const invoices = await this.sql<{ id: string; jobId: string; number: number; status: string; totalCents: string; paidCents: string; issuedOn: Date }[]>`
+      select i.id, i.job_id, i.number, i.status, i.total_cents, i.issued_on,
+             coalesce((select sum(p.amount_cents) from payments p where p.invoice_id = i.id), 0) as paid_cents
+      from invoices i where i.job_id = any(${jobIds}::uuid[]) and i.status <> 'void' order by i.number`;
     const materials = await this.sql<{ id: string; jobId: string; description: string; quantity: string; unit: string | null; status: string }[]>`
       select id, job_id, description, quantity, unit, status from material_items
       where job_id = any(${jobIds}::uuid[]) and removed_at is null order by created_at`;
@@ -170,6 +174,16 @@ export class PostgresPlannerData implements LookupExecutor, CandidateFinder {
                   ),
               }
             : null,
+          invoices: invoices
+            .filter((i) => i.jobId === id)
+            .map((i) => ({
+              id: i.id,
+              number: i.number,
+              status: i.status,
+              issuedOn: i.issuedOn.toISOString().slice(0, 10),
+              totalDollars: centsToDollars(Number(i.totalCents)),
+              owedDollars: centsToDollars(Number(i.totalCents) - Number(i.paidCents)),
+            })),
           materials: materials
             .filter((m) => m.jobId === id)
             .map((m) => ({ id: m.id, description: m.description, quantity: Number(m.quantity), unit: m.unit, status: m.status })),

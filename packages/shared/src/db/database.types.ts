@@ -174,6 +174,43 @@ isOneToOne: false
       referencedColumns: ["id","org_id"]
     }
                   ]
+                },"expenses": {
+                  Row: {
+                    "capture_id": string | null,"category": Database["public"]['Enums']["expense_category"],"created_at": string,"created_by": string | null,"description": string | null,"id": string,"job_id": string | null,"org_id": string,"receipt_attachment_id": string | null,"spent_on": string,"supply_house_id": string | null,"total_cents": number,"updated_at": string,"vendor_name": string | null
+                  }
+                  Insert: {
+                    "capture_id"?: string | null,"category": Database["public"]['Enums']["expense_category"],"created_at"?: string,"created_by"?: string | null,"description"?: string | null,"id"?: string,"job_id"?: string | null,"org_id": string,"receipt_attachment_id"?: string | null,"spent_on"?: string,"supply_house_id"?: string | null,"total_cents": number,"updated_at"?: string,"vendor_name"?: string | null
+                  }
+                  Update: {
+                    "capture_id"?: string | null,"category"?: Database["public"]['Enums']["expense_category"],"created_at"?: string,"created_by"?: string | null,"description"?: string | null,"id"?: string,"job_id"?: string | null,"org_id"?: string,"receipt_attachment_id"?: string | null,"spent_on"?: string,"supply_house_id"?: string | null,"total_cents"?: number,"updated_at"?: string,"vendor_name"?: string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "expenses_capture_id_org_id_fkey"
+      columns: ["capture_id","org_id"]
+isOneToOne: false
+      referencedRelation: "captures"
+      referencedColumns: ["id","org_id"]
+    },{
+      foreignKeyName: "expenses_job_id_org_id_fkey"
+      columns: ["job_id","org_id"]
+isOneToOne: false
+      referencedRelation: "jobs"
+      referencedColumns: ["id","org_id"]
+    },{
+      foreignKeyName: "expenses_receipt_attachment_id_org_id_fkey"
+      columns: ["receipt_attachment_id","org_id"]
+isOneToOne: false
+      referencedRelation: "attachments"
+      referencedColumns: ["id","org_id"]
+    },{
+      foreignKeyName: "expenses_supply_house_id_org_id_fkey"
+      columns: ["supply_house_id","org_id"]
+isOneToOne: false
+      referencedRelation: "supply_houses"
+      referencedColumns: ["id","org_id"]
+    }
+                  ]
                 },"glossary_terms": {
                   Row: {
                     "created_at": string,"expansion": string,"id": string,"notes": string | null,"org_id": string,"term": string,"updated_at": string
@@ -191,6 +228,44 @@ isOneToOne: false
 isOneToOne: false
       referencedRelation: "organizations"
       referencedColumns: ["id"]
+    }
+                  ]
+                },"invoice_line_items": {
+                  Row: {
+                    "created_at": string,"description": string,"id": string,"invoice_id": string,"kind": Database["public"]['Enums']["quote_line_kind"],"org_id": string,"position": number,"quantity": number,"unit": string | null,"unit_price_cents": number
+                  }
+                  Insert: {
+                    "created_at"?: string,"description": string,"id"?: string,"invoice_id": string,"kind": Database["public"]['Enums']["quote_line_kind"],"org_id": string,"position": number,"quantity": number,"unit"?: string | null,"unit_price_cents": number
+                  }
+                  Update: {
+                    "created_at"?: string,"description"?: string,"id"?: string,"invoice_id"?: string,"kind"?: Database["public"]['Enums']["quote_line_kind"],"org_id"?: string,"position"?: number,"quantity"?: number,"unit"?: string | null,"unit_price_cents"?: number
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "invoice_line_items_invoice_id_org_id_fkey"
+      columns: ["invoice_id","org_id"]
+isOneToOne: false
+      referencedRelation: "invoices"
+      referencedColumns: ["id","org_id"]
+    }
+                  ]
+                },"invoices": {
+                  Row: {
+                    "created_at": string,"created_by": string | null,"due_on": string | null,"id": string,"issued_on": string,"job_id": string,"notes": string | null,"number": number,"org_id": string,"status": Database["public"]['Enums']["invoice_status"],"total_cents": number,"updated_at": string
+                  }
+                  Insert: {
+                    "created_at"?: string,"created_by"?: string | null,"due_on"?: string | null,"id"?: string,"issued_on"?: string,"job_id": string,"notes"?: string | null,"number": number,"org_id": string,"status"?: Database["public"]['Enums']["invoice_status"],"total_cents": number,"updated_at"?: string
+                  }
+                  Update: {
+                    "created_at"?: string,"created_by"?: string | null,"due_on"?: string | null,"id"?: string,"issued_on"?: string,"job_id"?: string,"notes"?: string | null,"number"?: number,"org_id"?: string,"status"?: Database["public"]['Enums']["invoice_status"],"total_cents"?: number,"updated_at"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "invoices_job_id_org_id_fkey"
+      columns: ["job_id","org_id"]
+isOneToOne: false
+      referencedRelation: "jobs"
+      referencedColumns: ["id","org_id"]
     }
                   ]
                 },"job_status_transitions": {
@@ -239,16 +314,22 @@ isOneToOne: false
                   ]
                 },"material_items": {
                   Row: {
-                    "created_at": string,"description": string,"id": string,"job_id": string,"org_id": string,"quantity": number,"removed_at": string | null,"removed_reason": string | null,"status": Database["public"]['Enums']["material_status"],"supply_house_id": string | null,"unit": string | null,"unit_cost_cents": number | null,"updated_at": string
+                    "created_at": string,"description": string,"expense_id": string | null,"id": string,"job_id": string,"org_id": string,"quantity": number,"removed_at": string | null,"removed_reason": string | null,"status": Database["public"]['Enums']["material_status"],"supply_house_id": string | null,"unit": string | null,"unit_cost_cents": number | null,"updated_at": string
                   }
                   Insert: {
-                    "created_at"?: string,"description": string,"id"?: string,"job_id": string,"org_id": string,"quantity": number,"removed_at"?: string | null,"removed_reason"?: string | null,"status"?: Database["public"]['Enums']["material_status"],"supply_house_id"?: string | null,"unit"?: string | null,"unit_cost_cents"?: number | null,"updated_at"?: string
+                    "created_at"?: string,"description": string,"expense_id"?: string | null,"id"?: string,"job_id": string,"org_id": string,"quantity": number,"removed_at"?: string | null,"removed_reason"?: string | null,"status"?: Database["public"]['Enums']["material_status"],"supply_house_id"?: string | null,"unit"?: string | null,"unit_cost_cents"?: number | null,"updated_at"?: string
                   }
                   Update: {
-                    "created_at"?: string,"description"?: string,"id"?: string,"job_id"?: string,"org_id"?: string,"quantity"?: number,"removed_at"?: string | null,"removed_reason"?: string | null,"status"?: Database["public"]['Enums']["material_status"],"supply_house_id"?: string | null,"unit"?: string | null,"unit_cost_cents"?: number | null,"updated_at"?: string
+                    "created_at"?: string,"description"?: string,"expense_id"?: string | null,"id"?: string,"job_id"?: string,"org_id"?: string,"quantity"?: number,"removed_at"?: string | null,"removed_reason"?: string | null,"status"?: Database["public"]['Enums']["material_status"],"supply_house_id"?: string | null,"unit"?: string | null,"unit_cost_cents"?: number | null,"updated_at"?: string
                   }
                   Relationships: [
                     {
+      foreignKeyName: "material_items_expense_fkey"
+      columns: ["expense_id","org_id"]
+isOneToOne: false
+      referencedRelation: "expenses"
+      referencedColumns: ["id","org_id"]
+    },{
       foreignKeyName: "material_items_job_id_org_id_fkey"
       columns: ["job_id","org_id"]
 isOneToOne: false
@@ -343,6 +424,25 @@ isOneToOne: false
                   }
                   Relationships: [
                     
+                  ]
+                },"payments": {
+                  Row: {
+                    "amount_cents": number,"created_at": string,"created_by": string | null,"id": string,"invoice_id": string,"method": Database["public"]['Enums']["payment_method"] | null,"notes": string | null,"org_id": string,"paid_on": string,"reference": string | null
+                  }
+                  Insert: {
+                    "amount_cents": number,"created_at"?: string,"created_by"?: string | null,"id"?: string,"invoice_id": string,"method"?: Database["public"]['Enums']["payment_method"] | null,"notes"?: string | null,"org_id": string,"paid_on"?: string,"reference"?: string | null
+                  }
+                  Update: {
+                    "amount_cents"?: number,"created_at"?: string,"created_by"?: string | null,"id"?: string,"invoice_id"?: string,"method"?: Database["public"]['Enums']["payment_method"] | null,"notes"?: string | null,"org_id"?: string,"paid_on"?: string,"reference"?: string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "payments_invoice_id_org_id_fkey"
+      columns: ["invoice_id","org_id"]
+isOneToOne: false
+      referencedRelation: "invoices"
+      referencedColumns: ["id","org_id"]
+    }
                   ]
                 },"profiles": {
                   Row: {
@@ -490,7 +590,7 @@ isOneToOne: false
                            }
           }
           Enums: {
-            "audit_source": "manual"|"voice"|"image"|"text"|"system","capture_status": "uploaded"|"processing"|"ready_for_review"|"committed"|"rejected"|"failed","capture_type": "audio"|"image"|"text","change_set_status": "pending"|"approved"|"rejected","job_status": "lead"|"quoted"|"accepted"|"scheduled"|"in_progress"|"completed"|"invoiced"|"paid"|"declined"|"cancelled","material_status": "needed"|"ordered"|"purchased"|"installed"|"returned","org_role": "owner"|"admin"|"member","quote_line_kind": "labor"|"material","quote_status": "draft"|"sent"|"accepted"|"rejected"|"superseded","supply_integration_type": "email"|"api"|"manual","supply_order_status": "draft"|"sent"|"confirmed"|"received"|"cancelled"
+            "audit_source": "manual"|"voice"|"image"|"text"|"system","capture_status": "uploaded"|"processing"|"ready_for_review"|"committed"|"rejected"|"failed","capture_type": "audio"|"image"|"text","change_set_status": "pending"|"approved"|"rejected","expense_category": "materials"|"tools_equipment"|"vehicle"|"supplies"|"phone_software"|"other","invoice_status": "draft"|"sent"|"paid"|"void","job_status": "lead"|"quoted"|"accepted"|"scheduled"|"in_progress"|"completed"|"invoiced"|"paid"|"declined"|"cancelled","material_status": "needed"|"ordered"|"purchased"|"installed"|"returned","org_role": "owner"|"admin"|"member","payment_method": "cash"|"check"|"card"|"transfer"|"other","quote_line_kind": "labor"|"material","quote_status": "draft"|"sent"|"accepted"|"rejected"|"superseded","supply_integration_type": "email"|"api"|"manual","supply_order_status": "draft"|"sent"|"confirmed"|"received"|"cancelled"
           }
           CompositeTypes: {
             [_ in never]: never
@@ -606,7 +706,7 @@ export type CompositeTypes<
 export const Constants = {
   "public": {
           Enums: {
-            "audit_source": ["manual", "voice", "image", "text", "system"],"capture_status": ["uploaded", "processing", "ready_for_review", "committed", "rejected", "failed"],"capture_type": ["audio", "image", "text"],"change_set_status": ["pending", "approved", "rejected"],"job_status": ["lead", "quoted", "accepted", "scheduled", "in_progress", "completed", "invoiced", "paid", "declined", "cancelled"],"material_status": ["needed", "ordered", "purchased", "installed", "returned"],"org_role": ["owner", "admin", "member"],"quote_line_kind": ["labor", "material"],"quote_status": ["draft", "sent", "accepted", "rejected", "superseded"],"supply_integration_type": ["email", "api", "manual"],"supply_order_status": ["draft", "sent", "confirmed", "received", "cancelled"]
+            "audit_source": ["manual", "voice", "image", "text", "system"],"capture_status": ["uploaded", "processing", "ready_for_review", "committed", "rejected", "failed"],"capture_type": ["audio", "image", "text"],"change_set_status": ["pending", "approved", "rejected"],"expense_category": ["materials", "tools_equipment", "vehicle", "supplies", "phone_software", "other"],"invoice_status": ["draft", "sent", "paid", "void"],"job_status": ["lead", "quoted", "accepted", "scheduled", "in_progress", "completed", "invoiced", "paid", "declined", "cancelled"],"material_status": ["needed", "ordered", "purchased", "installed", "returned"],"org_role": ["owner", "admin", "member"],"payment_method": ["cash", "check", "card", "transfer", "other"],"quote_line_kind": ["labor", "material"],"quote_status": ["draft", "sent", "accepted", "rejected", "superseded"],"supply_integration_type": ["email", "api", "manual"],"supply_order_status": ["draft", "sent", "confirmed", "received", "cancelled"]
           }
         }
 } as const

@@ -345,3 +345,45 @@ describe("validateChangeSet: duplicate sites", () => {
     }
   });
 });
+
+describe("validateChangeSet: money", () => {
+  it("bills an accepted job from its quote, then takes a payment against the new invoice", async () => {
+    const result = await validate(
+      draft([
+        { tool: "create_invoice", args: { tempId: "$i1", jobId: ids.acceptedJob, dueInDays: 30 } },
+        { tool: "record_payment", args: { invoiceId: "$i1", amountDollars: 250, method: "check", reference: "1042" } },
+      ]),
+    );
+    expect(result.ok, JSON.stringify(!result.ok && result.issues)).toBe(true);
+  });
+
+  it("won't bill a lead, or bill a quote that doesn't exist", async () => {
+    const result = await validate(draft([{ tool: "create_invoice", args: { jobId: ids.leadJob } }]));
+    expectIssue(result, "BUSINESS_RULE", 0, ["jobId"]);
+  });
+
+  it("rejects paying more than is owed, and paying a paid invoice", async () => {
+    const over = await validate(draft([{ tool: "record_payment", args: { invoiceId: ids.openInvoice, amountDollars: 600.5 } }]));
+    expectIssue(over, "BUSINESS_RULE", 0, ["amountDollars"]);
+    const exact = await validate(draft([{ tool: "record_payment", args: { invoiceId: ids.openInvoice, amountDollars: 600 } }]));
+    expect(exact.ok).toBe(true);
+    const twice = await validate(draft([{ tool: "record_payment", args: { invoiceId: ids.paidInvoice, amountDollars: 10 } }]));
+    expectIssue(twice, "BUSINESS_RULE", 0, ["invoiceId"]);
+  });
+
+  it("checks payments against what earlier payments in the same note already covered", async () => {
+    const result = await validate(
+      draft([
+        { tool: "record_payment", args: { invoiceId: ids.openInvoice, amountDollars: 400 } },
+        { tool: "record_payment", args: { invoiceId: ids.openInvoice, amountDollars: 300 } },
+      ]),
+    );
+    expectIssue(result, "BUSINESS_RULE", 1, ["amountDollars"]);
+  });
+
+  it("logs a general expense and rejects a future date", async () => {
+    expect((await validate(draft([{ tool: "record_expense", args: { category: "tools_equipment", totalDollars: 189, description: "Impact driver", vendorName: "Home Depot" } }]))).ok).toBe(true);
+    const future = await validate(draft([{ tool: "record_expense", args: { category: "vehicle", totalDollars: 60, description: "Fuel", spentOn: "2027-01-01" } }]));
+    expectIssue(future, "BUSINESS_RULE", 0, ["spentOn"]);
+  });
+});

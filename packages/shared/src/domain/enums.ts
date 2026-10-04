@@ -66,3 +66,15 @@ export const AUDIT_SOURCE_BY_CAPTURE_TYPE: Record<CaptureType, AuditSource> = {
 
 export const ORG_ROLES = ["owner", "admin", "member"] as const;
 export type OrgRole = (typeof ORG_ROLES)[number];
+
+export const INVOICE_STATUSES = ["draft", "sent", "paid", "void"] as const;
+export type InvoiceStatus = (typeof INVOICE_STATUSES)[number];
+
+export const PAYMENT_METHODS = ["cash", "check", "card", "transfer", "other"] as const;
+export const paymentMethodSchema = z.enum(PAYMENT_METHODS);
+export type PaymentMethod = z.infer<typeof paymentMethodSchema>;
+
+/** Business expense categories for the tax view. Your accountant decides what's deductible. */
+export const EXPENSE_CATEGORIES = ["materials", "tools_equipment", "vehicle", "supplies", "phone_software", "other"] as const;
+export const expenseCategorySchema = z.enum(EXPENSE_CATEGORIES);
+export type ExpenseCategory = z.infer<typeof expenseCategorySchema>;

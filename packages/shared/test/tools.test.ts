@@ -29,6 +29,9 @@ describe("tool definitions", () => {
         "flag_ambiguity",
         "draft_supply_order",
         "record_purchase",
+        "create_invoice",
+        "record_payment",
+        "record_expense",
       ].sort(),
     );
   });

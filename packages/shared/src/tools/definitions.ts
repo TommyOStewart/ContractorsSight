@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { jobStatusSchema, materialStatusSchema } from "../domain/enums";
+import { expenseCategorySchema, jobStatusSchema, materialStatusSchema, paymentMethodSchema } from "../domain/enums";
 import { dollarsSchema } from "../domain/money";
 import { entityRef, existingRef, tempIdDecl } from "../domain/refs";
 import { defineTool } from "./defineTool";
@@ -299,7 +299,7 @@ export const recordPurchase = defineTool({
   name: "record_purchase",
   kind: "mutation",
   description:
-    "Record a purchase from a receipt: each line becomes a `purchased` material item on the job. Use supplyHouseId if the store is a known supply house, otherwise vendorName.",
+    "Record parts bought for a job from a receipt: each line becomes a `purchased` material item on the job, and the purchase is logged as a materials expense. Use supplyHouseId if the store is a known supply house, otherwise vendorName. For spending that isn't parts for a specific job (tools, fuel, phone bill, shop supplies), use record_expense instead.",
   input: z.strictObject({
     jobId: entityRef("job", "Job the parts were bought for."),
     supplyHouseId: entityRef("supplyHouse", "Known supply house the receipt is from.").optional(),
@@ -321,6 +321,63 @@ export const recordPurchase = defineTool({
   }),
 });
 
+// ---------------------------------------------------------------------------
+// Money
+// ---------------------------------------------------------------------------
+
+export const createInvoice = defineTool({
+  name: "create_invoice",
+  kind: "mutation",
+  description:
+    "Bill a job. Omit lineItems to bill the job's latest quote as it stands; give lineItems for a deposit, a partial bill, or extra work. The invoice is marked sent today, and a completed job moves to `invoiced`. Don't also call request_status_change for that.",
+  input: z.strictObject({
+    tempId: tempIdDecl("invoice").optional(),
+    jobId: entityRef("job", "Job being billed."),
+    lineItems: z
+      .array(z.discriminatedUnion("kind", [laborLineSchema, materialLineSchema]))
+      .min(1)
+      .max(200)
+      .optional()
+      .meta({ description: "What's being billed. Leave out to copy the latest quote." }),
+    dueInDays: z.int().min(0).max(120).optional().meta({ description: 'Days until payment is due, if stated ("net 30" = 30).' }),
+    notes: optionalText(2000, "Notes printed on the invoice."),
+  }),
+});
+
+export const recordPayment = defineTool({
+  name: "record_payment",
+  kind: "mutation",
+  description:
+    "Record money received against an invoice (find the invoice ID in find_job results). When the invoice is fully paid it's marked paid, and when all of a job's invoices are paid the job moves to `paid` automatically. Don't also call request_status_change for that.",
+  input: z.strictObject({
+    invoiceId: entityRef("invoice", "Invoice being paid."),
+    amountDollars: dollarsSchema("Amount received."),
+    paidOn: z.iso.date().optional().meta({ description: "Date received (YYYY-MM-DD), if not today." }),
+    method: paymentMethodSchema.optional().meta({ description: "How they paid." }),
+    reference: optionalText(80, "Check number or other reference."),
+  }),
+});
+
+export const recordExpense = defineTool({
+  name: "record_expense",
+  kind: "mutation",
+  description:
+    "Log a business expense that isn't parts for a specific job: tools and equipment, fuel and vehicle costs, shop supplies, phone and software bills. Parts for a job go through record_purchase.",
+  input: z.strictObject({
+    category: expenseCategorySchema.meta({
+      description:
+        "materials (parts not tied to one job), tools_equipment, vehicle (fuel, repairs, insurance), supplies (rags, tape, gloves, consumables), phone_software, other.",
+    }),
+    totalDollars: dollarsSchema("Total paid, including tax."),
+    description: text(300, 'What it was, e.g. "Milwaukee M18 impact driver" or "Fuel".'),
+    spentOn: z.iso.date().optional().meta({ description: "Date of the purchase (YYYY-MM-DD), if not today." }),
+    supplyHouseId: entityRef("supplyHouse", "Known supply house it was bought from.").optional(),
+    vendorName: optionalText(200, "Store or company name, if not a known supply house."),
+    jobId: entityRef("job", "Job this was for, if any.").optional(),
+    receiptAttachmentId: existingRef("attachment", "The scanned receipt image.").optional(),
+  }),
+});
+
 /** Every tool, in the order they are presented to the LLM. */
 export const TOOLS = [
   findClient,
@@ -338,4 +395,7 @@ export const TOOLS = [
   flagAmbiguity,
   draftSupplyOrder,
   recordPurchase,
+  createInvoice,
+  recordPayment,
+  recordExpense,
 ] as const;

@@ -1,4 +1,4 @@
-import type { EntityKey, EntityKind, EntitySnapshot, JobStatus, ValidationRepository } from "@contractorsight/shared";
+import type { EntityKey, EntityKind, EntitySnapshot, InvoiceStatus, JobStatus, ValidationRepository } from "@contractorsight/shared";
 import type { Queryable } from "./sql";
 
 /**
@@ -61,6 +61,13 @@ export class PostgresValidationRepository implements ValidationRepository {
         const rows = await sql<{ id: string; orgId: string; siteId: string }[]>`
           select id, org_id, site_id from public.equipment where id = any(${ids}::uuid[])`;
         return rows.map((r) => ({ entity, ...r }));
+      }
+      case "invoice": {
+        const rows = await sql<{ id: string; orgId: string; jobId: string; status: InvoiceStatus; totalCents: string; paidCents: string }[]>`
+          select i.id, i.org_id, i.job_id, i.status, i.total_cents,
+                 coalesce((select sum(p.amount_cents) from public.payments p where p.invoice_id = i.id), 0) as paid_cents
+          from public.invoices i where i.id = any(${ids}::uuid[])`;
+        return rows.map((r) => ({ entity, ...r, totalCents: Number(r.totalCents), paidCents: Number(r.paidCents) }));
       }
       case "supplyHouse": {
         const rows = await sql<{ id: string; orgId: string }[]>`select id, org_id from public.supply_houses where id = any(${ids}::uuid[])`;

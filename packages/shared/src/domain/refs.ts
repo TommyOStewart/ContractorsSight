@@ -11,6 +11,7 @@ export const ENTITY_KINDS = [
   "supplyOrder",
   "attachment",
   "equipment",
+  "invoice",
 ] as const;
 export type EntityKind = (typeof ENTITY_KINDS)[number];
 
@@ -24,6 +25,7 @@ const ENTITY_LABELS: Record<EntityKind, string> = {
   supplyOrder: "supply order",
   attachment: "attachment",
   equipment: "piece of equipment",
+  invoice: "invoice",
 };
 
 const TEMP_ID_PREFIX: Record<EntityKind, string> = {
@@ -36,6 +38,7 @@ const TEMP_ID_PREFIX: Record<EntityKind, string> = {
   supplyOrder: "o",
   attachment: "a",
   equipment: "e",
+  invoice: "i",
 };
 
 const UUID_SOURCE = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";

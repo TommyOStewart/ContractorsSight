@@ -15,6 +15,8 @@ interface JobRow {
   materials: number;
   scheduledStart: string | null;
   quoteCents: number | null;
+  /** Billed but not yet paid, across the job's invoices. */
+  owedCents: number;
 }
 
 type Filter = 'active' | 'week' | 'all';
@@ -36,7 +38,7 @@ export default function JobsScreen() {
       void (async () => {
         const { data } = await supabase
           .from('jobs')
-          .select('id, title, status, scheduled_start, clients (name), sites!jobs_site_id_org_id_fkey (line1), material_items (id, removed_at), quotes (version, total_cents)')
+          .select('id, title, status, scheduled_start, clients (name), sites!jobs_site_id_org_id_fkey (line1), material_items (id, removed_at), quotes (version, total_cents), invoices (status, total_cents, payments (amount_cents))')
           .eq('org_id', orgId)
           .order('updated_at', { ascending: false })
           .limit(200);
@@ -52,6 +54,9 @@ export default function JobsScreen() {
               materials: (row.material_items ?? []).filter((m) => !m.removed_at).length,
               scheduledStart: row.scheduled_start,
               quoteCents: latest ? Number(latest.total_cents) : null,
+              owedCents: (row.invoices ?? [])
+                .filter((i) => i.status === 'sent' || i.status === 'draft')
+                .reduce((sum, i) => sum + Number(i.total_cents) - (i.payments ?? []).reduce((p, x) => p + Number(x.amount_cents), 0), 0),
             };
           }),
         );
@@ -124,7 +129,7 @@ export default function JobsScreen() {
             <StatusChip status={j.status} label={j.status === 'scheduled' && j.scheduledStart ? when(j.scheduledStart) : undefined} />
           </View>
           <Small>
-            {[j.client, j.address, j.quoteCents !== null ? `Quote ${money(j.quoteCents)}` : null, j.materials ? `${j.materials} part${j.materials === 1 ? '' : 's'}` : null]
+            {[j.client, j.address, j.owedCents > 0 ? `Owes ${money(j.owedCents)}` : j.quoteCents !== null ? `Quote ${money(j.quoteCents)}` : null, j.materials ? `${j.materials} part${j.materials === 1 ? '' : 's'}` : null]
               .filter(Boolean)
               .join(' · ')}
           </Small>
