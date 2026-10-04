@@ -129,6 +129,13 @@ lead → quoted → accepted → scheduled → in_progress → completed → inv
 - `payments` are recorded against an invoice. When payments cover the total the invoice becomes `paid`, and when every non-void invoice on a job is paid an `invoiced` job becomes `paid`; the model is told not to change those statuses itself.
 - `expenses` hold every business purchase with a category (`expense_category`) for the tax view. `record_purchase` writes a `materials` expense and links its parts (`material_items.expense_id`); `record_expense` covers everything else. Categories organize; the app never claims something is deductible.
 
+## Business dashboard
+
+- The same Expo app runs in a browser (`expo start --web`); a **Business** tab appears there, and on phones it opens from Account.
+- Every number comes from one call to `dashboard_summary(org, year)` (migration 07): paid by month, owed, quotes waiting, quote win rate, jobs by stage, profit after materials by job type, expenses by category and supplier, missing receipts. It is `security invoker`, so RLS limits it to the caller's companies.
+- Charts are plain views (`apps/mobile/src/ui/charts.tsx`), one measure each, labeled, in colors validated for the dark surface. "Download for my accountant" exports the year's expenses as CSV.
+- `.claude/launch.json` has a `mobile-web-local` preview pointed at the local Supabase stack.
+
 ## Database conventions
 
 - Tables are plural snake_case. TypeScript is camelCase, and the repository layer maps between the two.
@@ -164,7 +171,6 @@ The RLS helper functions (`is_org_member`, `has_org_role`) are `security definer
 ## Not built yet (intentionally)
 
 - Mileage tracking.
-- The business dashboard and tax-year export (data is in place: invoices, payments, expenses).
 - Editing records directly in the app (today every change goes through a capture).
 - Inviting teammates to a company.
 - Offline sync between on-device SQLite and Supabase.

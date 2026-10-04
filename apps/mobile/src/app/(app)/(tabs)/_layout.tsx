@@ -1,5 +1,6 @@
 import { Feather } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
+import { Platform } from 'react-native';
 import { usePending } from '../../../data/PendingProvider';
 import { colors, fonts } from '../../../ui/theme';
 
@@ -28,6 +29,15 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen name="jobs" options={{ title: 'Jobs', tabBarIcon: ({ color }) => <Feather name="tool" size={26} color={color} /> }} />
+      {/* A desk screen: a tab on computers; on phones it opens from Account. */}
+      <Tabs.Screen
+        name="business"
+        options={{
+          title: 'Business',
+          href: Platform.OS === 'web' ? undefined : null,
+          tabBarIcon: ({ color }) => <Feather name="bar-chart-2" size={26} color={color} />,
+        }}
+      />
     </Tabs>
   );
 }

@@ -579,6 +579,9 @@ isOneToOne: false
             "create_organization":
 { Args: { "p_name": string }; Returns: string
                            },
+"dashboard_summary":
+{ Args: { "p_org_id": string,"p_year"?: number }; Returns: Json
+                           },
 "has_org_role":
 { Args: { "p_org_id": string,"p_roles": (Database["public"]['Enums']["org_role"])[] }; Returns: boolean
                            },

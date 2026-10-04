@@ -21,6 +21,7 @@ export default function AccountScreen() {
         <Small color={colors.muted}>Signed in as</Small>
         <Strong>{session?.user.email}</Strong>
       </Card>
+      <SecondaryButton title="Business dashboard" icon="bar-chart-2" onPress={() => router.replace('/business')} />
       <SecondaryButton title="Sign out" icon="log-out" onPress={signOut} />
     </Screen>
   );
