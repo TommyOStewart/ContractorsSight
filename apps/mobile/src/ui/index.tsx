@@ -1,5 +1,5 @@
 import { Feather } from '@expo/vector-icons';
-import type { ComponentProps, ReactNode } from 'react';
+import { createContext, useContext, type ComponentProps, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -24,6 +24,9 @@ export type IconName = ComponentProps<typeof Feather>['name'];
 // Layout
 // ---------------------------------------------------------------------------
 
+/** True inside the tab navigator, whose tab bar already keeps clear of the phone's own bottom bar. */
+export const InTabsContext = createContext(false);
+
 export function Screen({
   children,
   scroll = true,
@@ -43,8 +46,10 @@ export function Screen({
   ) : (
     <View style={[styles.content, styles.flex, center && styles.center]}>{children}</View>
   );
+  // Outside the tabs, keep content and footers clear of Android's navigation bar / the iOS home indicator.
+  const inTabs = useContext(InTabsContext);
   return (
-    <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={styles.safe} edges={inTabs ? ['top', 'left', 'right'] : ['top', 'left', 'right', 'bottom']}>
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         {body}
         {footer && <View style={styles.footer}>{footer}</View>}

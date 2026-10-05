@@ -1,4 +1,4 @@
-import type { EntitySnapshot, JobStatus, ToolArgs } from "@contractorsight/shared";
+import type { EntitySnapshot, JobStatus, JobType, ToolArgs } from "@contractorsight/shared";
 import { InMemoryRepository } from "@contractorsight/shared/testing";
 import { phoneDigits, searchWords } from "../src/planner/searchText";
 import type { CandidateFinder, GlossaryEntry, LookupExecutor } from "../src/planner/types";
@@ -60,7 +60,7 @@ interface Job {
   clientId: string;
   siteId: string;
   title: string;
-  jobType: string;
+  jobType: JobType;
   status: JobStatus;
   version: number;
   scheduledStart: string | null;
@@ -99,7 +99,7 @@ const jobs: Job[] = [
     clientId: ids.jebHenderson,
     siteId: ids.siteElm,
     title: "Replace 50 gal gas water heater",
-    jobType: "water heater replacement",
+    jobType: "water heater",
     status: "quoted",
     version: 4,
     scheduledStart: null,
@@ -130,15 +130,15 @@ const jobs: Job[] = [
     clientId: ids.maria,
     siteId: ids.siteBirch,
     title: "Leaking toilet at rental",
-    jobType: "toilet repair",
+    jobType: "toilet",
     status: "scheduled",
     version: 3,
     scheduledStart: "2026-10-07T14:00:00.000Z", // Wed 9:00 local
     scheduledEnd: "2026-10-07T16:00:00.000Z",
   },
   { id: ids.kimSump, clientId: ids.kim, siteId: ids.siteMain, title: "Sump pump replacement", jobType: "sump pump", status: "in_progress", version: 5, scheduledStart: "2026-10-05T13:00:00.000Z" },
-  { id: ids.sarahDisposal, clientId: ids.sarah, siteId: ids.siteCedar, title: "Garbage disposal install", jobType: "disposal", status: "completed", version: 8, scheduledStart: "2026-10-01T15:00:00.000Z" },
-  { id: ids.hendersonSpigot, clientId: ids.jebHenderson, siteId: ids.siteElm, title: "Fix outdoor spigot", jobType: "repair", status: "paid", version: 9, scheduledStart: "2026-08-12T15:00:00.000Z" },
+  { id: ids.sarahDisposal, clientId: ids.sarah, siteId: ids.siteCedar, title: "Garbage disposal install", jobType: "garbage disposal", status: "completed", version: 8, scheduledStart: "2026-10-01T15:00:00.000Z" },
+  { id: ids.hendersonSpigot, clientId: ids.jebHenderson, siteId: ids.siteElm, title: "Fix outdoor spigot", jobType: "leak repair", status: "paid", version: 9, scheduledStart: "2026-08-12T15:00:00.000Z" },
 ];
 
 const materials: Material[] = [

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { expenseCategorySchema, jobStatusSchema, materialStatusSchema, paymentMethodSchema } from "../domain/enums";
+import { expenseCategorySchema, jobStatusSchema, jobTypeSchema, materialStatusSchema, paymentMethodSchema } from "../domain/enums";
 import { dollarsSchema } from "../domain/money";
 import { entityRef, existingRef, tempIdDecl } from "../domain/refs";
 import { defineTool } from "./defineTool";
@@ -29,13 +29,9 @@ const addressSchema = z
   })
   .meta({ description: "A service address." });
 
-const jobType = z
-  .string()
-  .trim()
-  .toLowerCase()
-  .min(1)
-  .max(60)
-  .meta({ description: 'Short job category, e.g. "water heater replacement", "drain cleaning", "repipe".' });
+const jobType = jobTypeSchema.meta({
+  description: 'Kind of work. Pick the closest; "service call" for small diagnostic visits, "other" only if nothing fits.',
+});
 
 // ---------------------------------------------------------------------------
 // Lookup
@@ -362,11 +358,11 @@ export const recordExpense = defineTool({
   name: "record_expense",
   kind: "mutation",
   description:
-    "Log a business expense that isn't parts for a specific job: tools and equipment, fuel and vehicle costs, shop supplies, phone and software bills. Parts for a job go through record_purchase.",
+    "Log a business expense that isn't parts for a specific job: tools, fuel, subcontractors, permits, insurance, dump fees, phone bills and the like. Parts for a job go through record_purchase.",
   input: z.strictObject({
     category: expenseCategorySchema.meta({
       description:
-        "materials (parts not tied to one job), tools_equipment, vehicle (fuel, repairs, insurance), supplies (rags, tape, gloves, consumables), phone_software, other.",
+        "materials (parts not tied to one job), subcontractors, tools_equipment (buying tools), equipment_rental, vehicle (fuel, repairs, tolls, parking), supplies (rags, tape, gloves, consumables), permits_licenses, insurance (liability, vehicle, bonding), phone_software, advertising, office (paperwork, postage, accounting), meals, disposal (dump fees), training (classes, certifications), bank_fees (card processing), other.",
     }),
     totalDollars: dollarsSchema("Total paid, including tax."),
     description: text(300, 'What it was, e.g. "Milwaukee M18 impact driver" or "Fuel".'),

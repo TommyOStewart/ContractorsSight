@@ -67,7 +67,8 @@ async function planCapture(
 ): Promise<CaptureResult> {
   const { sql } = deps;
   const { captureId } = input;
-  const context = await deps.data.promptContext(input.orgId);
+  const started = Date.now();
+  const [context, candidates] = await Promise.all([deps.data.promptContext(input.orgId), deps.data.find(input.orgId, input.text)]);
   const { today, utcOffset } = localDay(deps.now?.() ?? new Date(), deps.timezone);
   const previous = input.previousOperations?.length
     ? `\n\nYour previous proposal for this capture (shown to the contractor, not saved):\n${JSON.stringify(input.previousOperations)}`
@@ -88,14 +89,15 @@ async function planCapture(
         text: input.text,
         captureType: input.captureType,
         targetJob: input.targetJob,
-        candidates: await deps.data.find(input.orgId, input.text),
+        candidates,
       }) +
       previous +
       answers,
   });
   console.log(
     `capture ${captureId}: ${result.draft.operations.length} ops, ${result.issues.length} issues, ` +
-      `${result.turns} turns, $${result.usage.costUsd.toFixed(4)}, ${(result.usage.modelMs / 1000).toFixed(1)}s (${deps.model.id})`,
+      `${result.turns} turns, $${result.usage.costUsd.toFixed(4)}, ${((Date.now() - started) / 1000).toFixed(1)}s ` +
+      `(model ${(result.usage.modelMs / 1000).toFixed(1)}s, ${deps.model.id})`,
   );
 
   if (!result.draft.operations.length) {

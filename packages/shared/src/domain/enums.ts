@@ -74,7 +74,76 @@ export const PAYMENT_METHODS = ["cash", "check", "card", "transfer", "other"] as
 export const paymentMethodSchema = z.enum(PAYMENT_METHODS);
 export type PaymentMethod = z.infer<typeof paymentMethodSchema>;
 
-/** Business expense categories for the tax view. Your accountant decides what's deductible. */
-export const EXPENSE_CATEGORIES = ["materials", "tools_equipment", "vehicle", "supplies", "phone_software", "other"] as const;
+/** Business expense categories for the tax view, roughly following Schedule C lines. Your accountant decides what's deductible. */
+export const EXPENSE_CATEGORIES = [
+  "materials",
+  "subcontractors",
+  "tools_equipment",
+  "equipment_rental",
+  "vehicle",
+  "supplies",
+  "permits_licenses",
+  "insurance",
+  "phone_software",
+  "advertising",
+  "office",
+  "meals",
+  "disposal",
+  "training",
+  "bank_fees",
+  "other",
+] as const;
 export const expenseCategorySchema = z.enum(EXPENSE_CATEGORIES);
 export type ExpenseCategory = z.infer<typeof expenseCategorySchema>;
+
+export const EXPENSE_CATEGORY_LABELS: Record<ExpenseCategory, string> = {
+  materials: "Materials",
+  subcontractors: "Subcontractors",
+  tools_equipment: "Tools & equipment",
+  equipment_rental: "Equipment rental",
+  vehicle: "Fuel & vehicle",
+  supplies: "Shop supplies",
+  permits_licenses: "Permits & licenses",
+  insurance: "Insurance",
+  phone_software: "Phone & software",
+  advertising: "Advertising",
+  office: "Office & admin",
+  meals: "Meals",
+  disposal: "Dump & disposal",
+  training: "Training & certs",
+  bank_fees: "Bank & card fees",
+  other: "Other",
+};
+
+// Not a Postgres enum: jobs.job_type stays free text so other trades can bring their own list later.
+// The planner must pick from this list, which keeps filters and charts grouped.
+/** Kinds of plumbing work, for filtering jobs and comparing what each kind earns. */
+export const JOB_TYPES = [
+  "service call",
+  "leak repair",
+  "drain cleaning",
+  "sewer line",
+  "water heater",
+  "tankless water heater",
+  "toilet",
+  "faucet & sink",
+  "garbage disposal",
+  "shower & tub",
+  "fixture install",
+  "repipe",
+  "water line",
+  "gas line",
+  "sump pump",
+  "well pump",
+  "water treatment",
+  "backflow",
+  "inspection",
+  "remodel",
+  "new construction",
+  "other",
+] as const;
+export const jobTypeSchema = z.enum(JOB_TYPES);
+export type JobType = z.infer<typeof jobTypeSchema>;
+
+/** Display label for a stored category, falling back to the raw value for anything unknown. */
+export const expenseCategoryLabel = (category: string): string => (EXPENSE_CATEGORY_LABELS as Record<string, string>)[category] ?? category;

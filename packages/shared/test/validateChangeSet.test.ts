@@ -25,7 +25,7 @@ describe("validateChangeSet: valid change sets", () => {
         { tool: "create_client", args: { tempId: "$c1", name: "Jeb Henderson", phone: "555-0101" } },
         {
           tool: "create_job",
-          args: { tempId: "$j1", clientId: "$c1", siteAddress: { line1: "12 Elm St" }, title: "Replace water heater", jobType: "Water Heater" },
+          args: { tempId: "$j1", clientId: "$c1", siteAddress: { line1: "12 Elm St" }, title: "Replace water heater", jobType: "water heater" },
         },
         { tool: "add_material", args: { tempId: "$m1", jobId: "$j1", description: "50gal gas water heater", quantity: 1, unitCostDollars: 899.99 } },
         {

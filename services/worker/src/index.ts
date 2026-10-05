@@ -14,7 +14,7 @@ const sql = createSql(config.DATABASE_URL);
 
 const capture = config.OPENROUTER_API_KEY
   ? {
-      model: new OpenRouterChatModel({ apiKey: config.OPENROUTER_API_KEY, model: config.PLANNER_MODEL, effort: config.PLANNER_EFFORT }),
+      model: new OpenRouterChatModel({ apiKey: config.OPENROUTER_API_KEY, model: config.PLANNER_MODEL, effort: config.PLANNER_EFFORT, requestsPerMinute: config.PLANNER_RPM }),
       data: new PostgresPlannerData(sql),
       timezone: config.TIMEZONE,
     }

@@ -1,5 +1,6 @@
 // Turns staged tool calls into plain-language lines for the review screen.
 // `names` resolves IDs (real or temp) to labels; anything unknown falls back to "a job" etc.
+import { expenseCategoryLabel } from '@contractorsight/shared';
 
 type Args = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -30,15 +31,6 @@ const STATUS_LABEL: Record<string, string> = {
   paid: 'Paid',
   declined: 'Declined',
   cancelled: 'Cancelled',
-};
-
-const EXPENSE_LABEL: Record<string, string> = {
-  materials: 'Materials',
-  tools_equipment: 'Tools & equipment',
-  vehicle: 'Vehicle',
-  supplies: 'Shop supplies',
-  phone_software: 'Phone & software',
-  other: 'Other',
 };
 
 const money = (dollars: number | undefined) =>
@@ -178,7 +170,7 @@ export function describeOperation(tool: string, args: Args, names: Names): Descr
       return {
         title: `Expense: ${args.description} · ${money(args.totalDollars)}`,
         details: compact([
-          EXPENSE_LABEL[args.category] ?? args.category,
+          expenseCategoryLabel(args.category),
           supplier(args.supplyHouseId) ?? args.vendorName,
           args.spentOn && `On ${args.spentOn}`,
           args.jobId && `For ${job(args.jobId)}`,

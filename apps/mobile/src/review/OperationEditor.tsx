@@ -1,4 +1,4 @@
-import { EXPENSE_CATEGORIES, JOB_STATUSES, MATERIAL_STATUSES, PAYMENT_METHODS } from '@contractorsight/shared';
+import { EXPENSE_CATEGORIES, expenseCategoryLabel, JOB_STATUSES, JOB_TYPES, MATERIAL_STATUSES, PAYMENT_METHODS } from '@contractorsight/shared';
 import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { BigButton, colors, fonts, Message, statusColors, TextButton } from '../ui';
@@ -13,15 +13,6 @@ interface FieldSpec {
   options?: readonly string[];
   optionLabel?: (v: string) => string;
 }
-
-const CATEGORY_LABEL: Record<string, string> = {
-  materials: 'Materials',
-  tools_equipment: 'Tools',
-  vehicle: 'Vehicle',
-  supplies: 'Supplies',
-  phone_software: 'Phone & software',
-  other: 'Other',
-};
 
 /** Fields a contractor can sensibly fix by hand. IDs and links stay as the planner resolved them. */
 const FIELDS: Record<string, FieldSpec> = {
@@ -50,9 +41,10 @@ const FIELDS: Record<string, FieldSpec> = {
   spentOn: { label: 'Date (YYYY-MM-DD)', kind: 'date' },
   paidOn: { label: 'Date paid (YYYY-MM-DD)', kind: 'date' },
   validUntil: { label: 'Valid until (YYYY-MM-DD)', kind: 'date' },
+  jobType: { label: 'Kind of job', kind: 'choice', options: JOB_TYPES, optionLabel: (v) => v.charAt(0).toUpperCase() + v.slice(1) },
   toStatus: { label: 'New status', kind: 'choice', options: JOB_STATUSES, optionLabel: (v) => statusColors[v]?.label ?? v },
   status: { label: 'Status', kind: 'choice', options: MATERIAL_STATUSES },
-  category: { label: 'Category', kind: 'choice', options: EXPENSE_CATEGORIES, optionLabel: (v) => CATEGORY_LABEL[v] ?? v },
+  category: { label: 'Category', kind: 'choice', options: EXPENSE_CATEGORIES, optionLabel: expenseCategoryLabel },
   method: { label: 'Paid by', kind: 'choice', options: PAYMENT_METHODS },
 };
 
