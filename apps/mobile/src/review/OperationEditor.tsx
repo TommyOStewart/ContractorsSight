@@ -24,7 +24,11 @@ const FIELDS: Record<string, FieldSpec> = {
   phone: { label: 'Phone', kind: 'text' },
   email: { label: 'Email', kind: 'text' },
   line1: { label: 'Street', kind: 'text' },
+  line2: { label: 'Apt / unit', kind: 'text' },
   city: { label: 'City', kind: 'text' },
+  region: { label: 'State', kind: 'text' },
+  label: { label: 'Name for this place', kind: 'text' },
+  accessNotes: { label: 'Gate code, access, what to know', kind: 'multiline' },
   postalCode: { label: 'ZIP', kind: 'text' },
   quantity: { label: 'Quantity', kind: 'number' },
   hours: { label: 'Hours', kind: 'number' },
@@ -85,10 +89,12 @@ export function OperationEditor({
   args,
   onSave,
   onCancel,
+  saveTitle = 'Save edit',
 }: {
   args: Args;
   onSave: (next: Args) => Promise<string | null>;
   onCancel: () => void;
+  saveTitle?: string;
 }) {
   const fields = useMemo(() => collectFields(args), [args]);
   const [drafts, setDrafts] = useState<Record<string, string>>(() =>
@@ -112,11 +118,12 @@ export function OperationEditor({
       const raw = (drafts[keyOf(f.path)] ?? '').trim();
       if (f.kind === 'number' || f.kind === 'money') {
         const n = Number(raw.replace(/[$,]/g, ''));
-        if (raw === '' || Number.isNaN(n)) {
+        if (Number.isNaN(n)) {
           setError(`${f.label} needs a number.`);
           return;
         }
-        next = setAt(next, f.path, n);
+        // Left blank: an optional number (like a cost) stays unset; a required one is caught by validation.
+        next = setAt(next, f.path, raw === '' ? undefined : n);
       } else {
         // An emptied optional field is removed; required ones are caught by validation.
         next = setAt(next, f.path, raw === '' ? undefined : raw);
@@ -172,7 +179,7 @@ export function OperationEditor({
         );
       })}
       <Message text={error} tone="error" />
-      <BigButton title="Save edit" icon="check" onPress={() => void save()} busy={busy} />
+      <BigButton title={saveTitle} icon="check" onPress={() => void save()} busy={busy} />
       <TextButton title="Cancel" onPress={onCancel} />
     </View>
   );

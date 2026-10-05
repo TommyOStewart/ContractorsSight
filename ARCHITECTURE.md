@@ -167,6 +167,8 @@ The RLS helper functions (`is_org_member`, `has_org_role`) are `security definer
 - The app talks to Supabase directly with the **publishable** key and relies on RLS. It never holds a secret key and never calls an LLM. Config comes from `apps/mobile/.env` (see `.env.example`).
 - Sessions persist in AsyncStorage. Moving to encrypted storage (expo-secure-store) is a follow-up.
 - Companies are created through the `create_organization` RPC, which makes the caller the owner in the same transaction. There is deliberately no insert policy on `organizations`.
+- **Hand edits** (customer, address, job details, status, schedule, parts, notes) post tool calls to the worker's `/edits`. `applyManualEdit` runs the same validation, appliers and audit trail as an approved ChangeSet, with source `manual` and no capture or ChangeSet, in one transaction. Only plain record tools are allowed (`MANUAL_TOOLS`). The app sends the job version it showed, so an edit made on a stale screen is refused.
+- The Jobs tab switches between a list and a calendar (month grid → tap a day → that week's jobs in time order, plus accepted jobs waiting for a day).
 - Calls and texts open the phone's own Dialer and Messages (`src/contact`), prefilled with short templates. The app never sends a text itself.
 - Screens outside the tabs add the bottom safe-area inset themselves; inside the tabs, the tab bar does (`InTabsContext`).
 - Typed queries: `pnpm db:types` regenerates `packages/shared/src/db/database.types.ts` from the local database. Run it after every migration.
@@ -174,7 +176,6 @@ The RLS helper functions (`is_org_member`, `has_org_role`) are `security definer
 ## Not built yet (intentionally)
 
 - Mileage tracking.
-- Editing records directly in the app (today every change goes through a capture).
 - Inviting teammates to a company.
 - Offline sync between on-device SQLite and Supabase.
 - Supplier integrations (email/API order sending).

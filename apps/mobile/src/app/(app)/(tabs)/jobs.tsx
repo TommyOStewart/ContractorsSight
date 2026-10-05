@@ -3,6 +3,7 @@ import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSession } from '../../../auth/SessionProvider';
+import { JobCalendar } from '../../../calendar/JobCalendar';
 import { supabase } from '../../../lib/supabase';
 import { Body, Card, colors, Display, fonts, Screen, Small, StatusChip, Strong } from '../../../ui';
 
@@ -26,7 +27,7 @@ const CLOSED = new Set(['paid', 'declined', 'cancelled']);
 const when = (iso: string) => new Date(iso).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' });
 const money = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
 
-// Read-only for now: find a job and see where it stands. Editing goes through captures.
+// Find a job and see where it stands, as a list or on the calendar. Open one to edit it.
 export default function JobsScreen() {
   const { memberships } = useSession();
   const orgId = memberships[0]!.orgId;
@@ -34,13 +35,16 @@ export default function JobsScreen() {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('active');
   const [kind, setKind] = useState<string | null>(null);
+  const [mode, setMode] = useState<'list' | 'calendar'>('list');
 
   useFocusEffect(
     useCallback(() => {
       void (async () => {
         const { data } = await supabase
           .from('jobs')
-          .select('id, title, status, job_type, scheduled_start, clients (name), sites!jobs_site_id_org_id_fkey (line1), material_items (id, removed_at), quotes (version, total_cents), invoices (status, total_cents, payments (amount_cents))')
+          .select(
+            'id, title, status, job_type, scheduled_start, clients (name), sites!jobs_site_id_org_id_fkey (line1), material_items (id, removed_at), quotes (version, total_cents), invoices (status, total_cents, payments (amount_cents))',
+          )
           .eq('org_id', orgId)
           .order('updated_at', { ascending: false })
           .limit(200);
@@ -92,76 +96,107 @@ export default function JobsScreen() {
   return (
     <Screen>
       <Display>Jobs</Display>
-      <View style={styles.search}>
-        <Feather name="search" size={22} color={colors.muted} />
-        <TextInput
-          value={query}
-          onChangeText={setQuery}
-          placeholder="Name, street, or job"
-          placeholderTextColor={colors.muted}
-          selectionColor={colors.accent}
-          accessibilityLabel="Search jobs"
-          style={styles.searchInput}
-          returnKeyType="search"
-        />
-      </View>
-      <View style={styles.filters}>
+      <View style={styles.modes}>
         {(
           [
-            ['active', 'Active'],
-            ['week', 'This week'],
-            ['all', 'All'],
+            ['list', 'List', 'list'],
+            ['calendar', 'Calendar', 'calendar'],
           ] as const
-        ).map(([key, label]) => (
+        ).map(([key, label, icon]) => (
           <Pressable
             key={key}
-            accessibilityRole="button"
-            accessibilityState={{ selected: filter === key }}
-            onPress={() => setFilter(key)}
-            style={[styles.pill, filter === key && styles.pillOn]}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: mode === key }}
+            onPress={() => setMode(key)}
+            style={[styles.mode, mode === key && styles.modeOn]}
           >
-            <Text style={[styles.pillText, filter === key && styles.pillTextOn]}>{label}</Text>
+            <Feather name={icon} size={18} color={mode === key ? colors.onAccent : colors.text} />
+            <Text style={[styles.pillText, mode === key && styles.pillTextOn]}>{label}</Text>
           </Pressable>
         ))}
       </View>
-
-      {kinds.length > 1 && (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.kinds}>
-          {[null, ...kinds].map((k) => (
-            <Pressable
-              key={k ?? 'any'}
-              accessibilityRole="button"
-              accessibilityState={{ selected: kind === k }}
-              onPress={() => setKind(k)}
-              style={[styles.kind, kind === k && styles.kindOn]}
-            >
-              <Text style={[styles.kindText, kind === k && styles.pillTextOn]}>{k ? capitalize(k) : 'Any kind'}</Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-      )}
-
-      {shown.length === 0 && (
-        <Card>
-          <Strong>No jobs here</Strong>
-          <Body muted>{query ? 'Nothing matches that search.' : 'Jobs you talk about show up here once you save them.'}</Body>
-        </Card>
-      )}
-      {shown.map((j) => (
-        <Card key={j.id} onPress={() => router.push({ pathname: '/job/[id]', params: { id: j.id } })}>
-          <View style={styles.titleRow}>
-            <View style={{ flex: 1 }}>
-              <Strong>{j.title}</Strong>
-            </View>
-            <StatusChip status={j.status} label={j.status === 'scheduled' && j.scheduledStart ? when(j.scheduledStart) : undefined} />
+      {mode === 'calendar' ? (
+        <JobCalendar orgId={orgId} />
+      ) : (
+        <>
+          <View style={styles.search}>
+            <Feather name="search" size={22} color={colors.muted} />
+            <TextInput
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Name, street, or job"
+              placeholderTextColor={colors.muted}
+              selectionColor={colors.accent}
+              accessibilityLabel="Search jobs"
+              style={styles.searchInput}
+              returnKeyType="search"
+            />
           </View>
-          <Small>
-            {[j.client, j.address, j.jobType && !kind ? capitalize(j.jobType) : null, j.owedCents > 0 ? `Owes ${money(j.owedCents)}` : j.quoteCents !== null ? `Quote ${money(j.quoteCents)}` : null, j.materials ? `${j.materials} part${j.materials === 1 ? '' : 's'}` : null]
-              .filter(Boolean)
-              .join(' · ')}
-          </Small>
-        </Card>
-      ))}
+          <View style={styles.filters}>
+            {(
+              [
+                ['active', 'Active'],
+                ['week', 'This week'],
+                ['all', 'All'],
+              ] as const
+            ).map(([key, label]) => (
+              <Pressable
+                key={key}
+                accessibilityRole="button"
+                accessibilityState={{ selected: filter === key }}
+                onPress={() => setFilter(key)}
+                style={[styles.pill, filter === key && styles.pillOn]}
+              >
+                <Text style={[styles.pillText, filter === key && styles.pillTextOn]}>{label}</Text>
+              </Pressable>
+            ))}
+          </View>
+
+          {kinds.length > 1 && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.kinds}>
+              {[null, ...kinds].map((k) => (
+                <Pressable
+                  key={k ?? 'any'}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: kind === k }}
+                  onPress={() => setKind(k)}
+                  style={[styles.kind, kind === k && styles.kindOn]}
+                >
+                  <Text style={[styles.kindText, kind === k && styles.pillTextOn]}>{k ? capitalize(k) : 'Any kind'}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          )}
+
+          {shown.length === 0 && (
+            <Card>
+              <Strong>No jobs here</Strong>
+              <Body muted>{query ? 'Nothing matches that search.' : 'Jobs you talk about show up here once you save them.'}</Body>
+            </Card>
+          )}
+          {shown.map((j) => (
+            <Card key={j.id} onPress={() => router.push({ pathname: '/job/[id]', params: { id: j.id } })}>
+              <View style={styles.titleRow}>
+                <View style={{ flex: 1 }}>
+                  <Strong>{j.title}</Strong>
+                </View>
+                <StatusChip status={j.status} label={j.status === 'scheduled' && j.scheduledStart ? when(j.scheduledStart) : undefined} />
+              </View>
+              <Small>
+                {[
+                  j.client,
+                  j.address,
+                  j.jobType && !kind ? capitalize(j.jobType) : null,
+                  j.owedCents > 0 ? `Owes ${money(j.owedCents)}` : j.quoteCents !== null ? `Quote ${money(j.quoteCents)}` : null,
+                  j.materials ? `${j.materials} part${j.materials === 1 ? '' : 's'}` : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </Small>
+            </Card>
+          ))}
+        </>
+      )}
     </Screen>
   );
 }
@@ -169,15 +204,36 @@ export default function JobsScreen() {
 const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 const styles = StyleSheet.create({
-  search: { height: 58, borderRadius: 14, borderWidth: 2, borderColor: colors.border, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14 },
+  search: {
+    height: 58,
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+  },
   searchInput: { flex: 1, color: colors.text, fontFamily: fonts.body, fontSize: 18, height: '100%' },
   filters: { flexDirection: 'row', gap: 8 },
   pill: { minHeight: 46, paddingHorizontal: 18, borderRadius: 23, borderWidth: 2, borderColor: colors.borderStrong, justifyContent: 'center' },
   pillOn: { backgroundColor: colors.accent, borderColor: colors.accent },
   pillText: { fontFamily: fonts.semibold, fontSize: 16, color: colors.text },
   pillTextOn: { fontFamily: fonts.bold, color: colors.onAccent },
+  modes: { flexDirection: 'row', borderRadius: 14, borderWidth: 2, borderColor: colors.borderStrong, padding: 3, gap: 3 },
+  mode: { flex: 1, minHeight: 46, borderRadius: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  modeOn: { backgroundColor: colors.accent },
   kinds: { gap: 8, paddingRight: 20 },
-  kind: { minHeight: 40, paddingHorizontal: 14, borderRadius: 10, borderWidth: 2, borderColor: colors.border, backgroundColor: colors.surface, justifyContent: 'center' },
+  kind: {
+    minHeight: 40,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    justifyContent: 'center',
+  },
   kindOn: { backgroundColor: colors.accent, borderColor: colors.accent },
   kindText: { fontFamily: fonts.semibold, fontSize: 15, color: colors.textSoft },
   titleRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },

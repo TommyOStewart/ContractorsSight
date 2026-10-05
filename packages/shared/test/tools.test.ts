@@ -21,6 +21,8 @@ describe("tool definitions", () => {
         "add_material",
         "add_note",
         "update_job_fields",
+        "update_client",
+        "update_site",
         "revise_quote",
         "update_material",
         "remove_material",
