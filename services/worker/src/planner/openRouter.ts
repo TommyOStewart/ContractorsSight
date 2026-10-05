@@ -11,7 +11,7 @@ export interface OpenRouterOptions {
   maxTokens?: number;
   /** Retries for 429 / 5xx / network errors. */
   maxRetries?: number;
-  /** Max requests per minute to this model from this process (OpenRouter limits new accounts to 20). */
+  /** Max requests per minute to this model from this process (OpenRouter limits accounts without credits to 20); 0 = no cap. */
   requestsPerMinute?: number;
   fetchImpl?: typeof fetch;
 }
@@ -103,7 +103,8 @@ export class OpenRouterChatModel implements ChatModel {
     for (let attempt = 0; ; attempt++) {
       let status = 0;
       let retryAfterMs = 0;
-      await waitForSlot(this.options.model, this.options.requestsPerMinute ?? 15);
+      const rpm = this.options.requestsPerMinute ?? 15;
+      if (rpm > 0) await waitForSlot(this.options.model, rpm);
       const started = Date.now();
       try {
         const res = await doFetch(ENDPOINT, {

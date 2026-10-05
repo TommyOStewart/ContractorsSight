@@ -31,7 +31,14 @@ const sql = readdirSync(migrationsDir)
 function sqlEnum(name: string): string[] {
   const match = new RegExp(`create type public\\.${name} as enum \\(([^)]*)\\)`).exec(sql);
   if (!match) throw new Error(`enum ${name} not found in migrations`);
-  return [...match[1]!.matchAll(/'([^']+)'/g)].map((m) => m[1]!);
+  const values = [...match[1]!.matchAll(/'([^']+)'/g)].map((m) => m[1]!);
+  // Later migrations extend enums with `alter type ... add value 'x' [after|before 'y']`.
+  for (const m of sql.matchAll(new RegExp(`alter type public\.${name} add value '([^']+)'(?: (after|before) '([^']+)')?`, "g"))) {
+    const at = m[3] ? values.indexOf(m[3]) : -1;
+    if (at === -1) values.push(m[1]!);
+    else values.splice(m[2] === "after" ? at + 1 : at, 0, m[1]!);
+  }
+  return values;
 }
 
 describe("migrations match shared enums", () => {

@@ -1,7 +1,8 @@
 import { Feather } from '@expo/vector-icons';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Linking, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { ContactActions } from '../../../contact/ContactActions';
 import { supabase } from '../../../lib/supabase';
 import {
   BigButton,
@@ -28,7 +29,7 @@ interface JobDetail {
   description: string | null;
   scheduledStart: string | null;
   scheduledEnd: string | null;
-  client: { name: string; phone: string | null; email: string | null } | null;
+  client: { id: string; name: string; phone: string | null; email: string | null } | null;
   site: { line1: string; city: string | null; label: string | null } | null;
   quote: { version: number; totalCents: number; lines: { description: string; quantity: number; unit: string | null; unitPriceCents: number }[] } | null;
   invoices: { number: number; status: string; totalCents: number; paidCents: number; issuedOn: string }[];
@@ -47,7 +48,7 @@ async function loadJob(id: string): Promise<JobDetail | null> {
   const { data: j } = await supabase
     .from('jobs')
     .select(
-      'id, title, status, job_type, description, scheduled_start, scheduled_end, clients (name, phone, email), sites!jobs_site_id_org_id_fkey (line1, city, label)',
+      'id, title, status, job_type, description, scheduled_start, scheduled_end, clients (id, name, phone, email), sites!jobs_site_id_org_id_fkey (line1, city, label)',
     )
     .eq('id', id)
     .single();
@@ -131,7 +132,15 @@ export default function JobScreen() {
       </View>
 
       <Card style={{ gap: 6 }}>
-        {job.client && <Strong>{job.client.name}</Strong>}
+        {job.client && (
+          <Pressable accessibilityRole="link" onPress={() => router.push({ pathname: '/customer/[id]', params: { id: job.client!.id } })}>
+            <View style={styles.spread}>
+              <Strong>{job.client.name}</Strong>
+              <Feather name="chevron-right" size={22} color={colors.muted} />
+            </View>
+          </Pressable>
+        )}
+        {job.jobType && <Small color={colors.muted}>{job.jobType.charAt(0).toUpperCase() + job.jobType.slice(1)}</Small>}
         {address && <Small>{job.site?.label ? `${job.site.label} · ${address}` : address}</Small>}
         {job.scheduledStart && (
           <Small color={colors.success}>
@@ -139,22 +148,14 @@ export default function JobScreen() {
             {job.scheduledEnd ? ` – ${new Date(job.scheduledEnd).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : ''}
           </Small>
         )}
-        <View style={styles.contactRow}>
-          {job.client?.phone && (
-            <View style={{ flex: 1 }}>
-              <SecondaryButton title="Call" icon="phone" onPress={() => void Linking.openURL(`tel:${job.client!.phone}`)} />
-            </View>
-          )}
-          {address && (
-            <View style={{ flex: 1 }}>
-              <SecondaryButton
-                title="Directions"
-                icon="navigation"
-                onPress={() => void Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`)}
-              />
-            </View>
-          )}
-        </View>
+        {job.client && (
+          <ContactActions
+            name={job.client.name}
+            phone={job.client.phone}
+            address={address}
+            owedCents={job.invoices.reduce((sum, i) => sum + Math.max(0, i.totalCents - i.paidCents), 0)}
+          />
+        )}
       </Card>
 
       <BigButton title="Talk about this job" icon="mic" onPress={() => router.push(`/record?${about}`)} />

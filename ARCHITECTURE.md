@@ -127,7 +127,8 @@ lead → quoted → accepted → scheduled → in_progress → completed → inv
 
 - `invoices` belong to a job (several per job: deposit, progress, final), numbered per company from #1001 by the commit path under an advisory lock. Lines come from the latest quote unless the capture gives them. Creating one moves a `completed` job to `invoiced`.
 - `payments` are recorded against an invoice. When payments cover the total the invoice becomes `paid`, and when every non-void invoice on a job is paid an `invoiced` job becomes `paid`; the model is told not to change those statuses itself.
-- `expenses` hold every business purchase with a category (`expense_category`) for the tax view. `record_purchase` writes a `materials` expense and links its parts (`material_items.expense_id`); `record_expense` covers everything else. Categories organize; the app never claims something is deductible.
+- `expenses` hold every business purchase with a category (`expense_category`) for the tax view. `record_purchase` writes a `materials` expense and links its parts (`material_items.expense_id`); `record_expense` covers everything else. Categories (roughly Schedule C lines, migration 08) organize; the app never claims something is deductible. Labels live in `EXPENSE_CATEGORY_LABELS`.
+- `jobs.job_type` is free text in the database (other trades will bring their own lists), but the tools only accept `JOB_TYPES` from `packages/shared`, so filters and the profit-by-type chart group cleanly.
 
 ## Business dashboard
 
@@ -166,6 +167,8 @@ The RLS helper functions (`is_org_member`, `has_org_role`) are `security definer
 - The app talks to Supabase directly with the **publishable** key and relies on RLS. It never holds a secret key and never calls an LLM. Config comes from `apps/mobile/.env` (see `.env.example`).
 - Sessions persist in AsyncStorage. Moving to encrypted storage (expo-secure-store) is a follow-up.
 - Companies are created through the `create_organization` RPC, which makes the caller the owner in the same transaction. There is deliberately no insert policy on `organizations`.
+- Calls and texts open the phone's own Dialer and Messages (`src/contact`), prefilled with short templates. The app never sends a text itself.
+- Screens outside the tabs add the bottom safe-area inset themselves; inside the tabs, the tab bar does (`InTabsContext`).
 - Typed queries: `pnpm db:types` regenerates `packages/shared/src/db/database.types.ts` from the local database. Run it after every migration.
 
 ## Not built yet (intentionally)

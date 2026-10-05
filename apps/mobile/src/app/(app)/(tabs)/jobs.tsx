@@ -1,7 +1,7 @@
 import { Feather } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSession } from '../../../auth/SessionProvider';
 import { supabase } from '../../../lib/supabase';
 import { Body, Card, colors, Display, fonts, Screen, Small, StatusChip, Strong } from '../../../ui';
@@ -10,6 +10,7 @@ interface JobRow {
   id: string;
   title: string;
   status: string;
+  jobType: string | null;
   client: string;
   address: string | null;
   materials: number;
@@ -32,13 +33,14 @@ export default function JobsScreen() {
   const [jobs, setJobs] = useState<JobRow[]>([]);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('active');
+  const [kind, setKind] = useState<string | null>(null);
 
   useFocusEffect(
     useCallback(() => {
       void (async () => {
         const { data } = await supabase
           .from('jobs')
-          .select('id, title, status, scheduled_start, clients (name), sites!jobs_site_id_org_id_fkey (line1), material_items (id, removed_at), quotes (version, total_cents), invoices (status, total_cents, payments (amount_cents))')
+          .select('id, title, status, job_type, scheduled_start, clients (name), sites!jobs_site_id_org_id_fkey (line1), material_items (id, removed_at), quotes (version, total_cents), invoices (status, total_cents, payments (amount_cents))')
           .eq('org_id', orgId)
           .order('updated_at', { ascending: false })
           .limit(200);
@@ -49,6 +51,7 @@ export default function JobsScreen() {
               id: row.id,
               title: row.title,
               status: row.status,
+              jobType: row.job_type,
               client: row.clients?.name ?? '',
               address: row.sites?.line1 ?? null,
               materials: (row.material_items ?? []).filter((m) => !m.removed_at).length,
@@ -75,8 +78,16 @@ export default function JobsScreen() {
             ? !CLOSED.has(j.status)
             : !!j.scheduledStart && new Date(j.scheduledStart).getTime() <= weekAhead && new Date(j.scheduledStart).getTime() >= Date.now() - 24 * 3600_000,
       )
-      .filter((j) => words.every((w) => `${j.title} ${j.client} ${j.address ?? ''}`.toLowerCase().includes(w)));
-  }, [jobs, query, filter]);
+      .filter((j) => !kind || j.jobType === kind)
+      .filter((j) => words.every((w) => `${j.title} ${j.client} ${j.address ?? ''} ${j.jobType ?? ''}`.toLowerCase().includes(w)));
+  }, [jobs, query, filter, kind]);
+
+  // Only the kinds of work this company actually has, most common first.
+  const kinds = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const j of jobs) if (j.jobType) counts.set(j.jobType, (counts.get(j.jobType) ?? 0) + 1);
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k);
+  }, [jobs]);
 
   return (
     <Screen>
@@ -114,6 +125,22 @@ export default function JobsScreen() {
         ))}
       </View>
 
+      {kinds.length > 1 && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.kinds}>
+          {[null, ...kinds].map((k) => (
+            <Pressable
+              key={k ?? 'any'}
+              accessibilityRole="button"
+              accessibilityState={{ selected: kind === k }}
+              onPress={() => setKind(k)}
+              style={[styles.kind, kind === k && styles.kindOn]}
+            >
+              <Text style={[styles.kindText, kind === k && styles.pillTextOn]}>{k ? capitalize(k) : 'Any kind'}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      )}
+
       {shown.length === 0 && (
         <Card>
           <Strong>No jobs here</Strong>
@@ -129,7 +156,7 @@ export default function JobsScreen() {
             <StatusChip status={j.status} label={j.status === 'scheduled' && j.scheduledStart ? when(j.scheduledStart) : undefined} />
           </View>
           <Small>
-            {[j.client, j.address, j.owedCents > 0 ? `Owes ${money(j.owedCents)}` : j.quoteCents !== null ? `Quote ${money(j.quoteCents)}` : null, j.materials ? `${j.materials} part${j.materials === 1 ? '' : 's'}` : null]
+            {[j.client, j.address, j.jobType && !kind ? capitalize(j.jobType) : null, j.owedCents > 0 ? `Owes ${money(j.owedCents)}` : j.quoteCents !== null ? `Quote ${money(j.quoteCents)}` : null, j.materials ? `${j.materials} part${j.materials === 1 ? '' : 's'}` : null]
               .filter(Boolean)
               .join(' · ')}
           </Small>
@@ -139,6 +166,8 @@ export default function JobsScreen() {
   );
 }
 
+const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
 const styles = StyleSheet.create({
   search: { height: 58, borderRadius: 14, borderWidth: 2, borderColor: colors.border, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14 },
   searchInput: { flex: 1, color: colors.text, fontFamily: fonts.body, fontSize: 18, height: '100%' },
@@ -147,5 +176,9 @@ const styles = StyleSheet.create({
   pillOn: { backgroundColor: colors.accent, borderColor: colors.accent },
   pillText: { fontFamily: fonts.semibold, fontSize: 16, color: colors.text },
   pillTextOn: { fontFamily: fonts.bold, color: colors.onAccent },
+  kinds: { gap: 8, paddingRight: 20 },
+  kind: { minHeight: 40, paddingHorizontal: 14, borderRadius: 10, borderWidth: 2, borderColor: colors.border, backgroundColor: colors.surface, justifyContent: 'center' },
+  kindOn: { backgroundColor: colors.accent, borderColor: colors.accent },
+  kindText: { fontFamily: fonts.semibold, fontSize: 15, color: colors.textSoft },
   titleRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
 });

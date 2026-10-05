@@ -14,6 +14,11 @@ const envSchema = z.object({
   OPENROUTER_API_KEY: z.string().min(1).optional(),
   PLANNER_MODEL: z.string().default("openai/gpt-6.1-sol"),
   PLANNER_EFFORT: z.enum(["minimal", "low", "medium", "high"]).default("medium"),
+  /**
+   * Client-side cap on planner requests per minute; 0 turns it off. Only needed for an OpenRouter
+   * account with no credits (20/minute); pacing otherwise just adds seconds to every capture.
+   */
+  PLANNER_RPM: z.coerce.number().int().nonnegative().default(0),
   /** Speech-to-text model via OpenRouter, for voice notes. */
   TRANSCRIBE_MODEL: z.string().default("openai/gpt-transcribe"),
   /** Vision model via OpenRouter that reads photos of notes and receipts into text. */

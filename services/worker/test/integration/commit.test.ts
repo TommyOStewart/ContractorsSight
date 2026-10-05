@@ -10,7 +10,7 @@ describe("approveChangeSet", () => {
     const org = await seedOrg();
     const { changeSetId, captureId } = await stageChangeSet(org, [
       { tool: "create_client", args: { tempId: "$c_1", name: "Ada Lovelace", siteAddress: { line1: "12 Elm St", city: "Springfield" } } },
-      { tool: "create_job", args: { tempId: "$j1", clientId: "$c_1", title: "Replace water heater", jobType: "Water Heater" } },
+      { tool: "create_job", args: { tempId: "$j1", clientId: "$c_1", title: "Replace water heater", jobType: "water heater" } },
       { tool: "add_material", args: { jobId: "$j1", description: "50gal gas water heater", quantity: 1, unitCostDollars: 899.99 } },
       { tool: "add_note", args: { jobId: "$j1", body: "Gate code 4411" } },
     ]);

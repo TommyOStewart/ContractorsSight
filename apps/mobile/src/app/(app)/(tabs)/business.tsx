@@ -1,3 +1,4 @@
+import { expenseCategoryLabel } from '@contractorsight/shared';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
@@ -30,15 +31,6 @@ const STAGES: [string, string][] = [
   ['completed', 'Done, not billed'],
   ['invoiced', 'Invoiced'],
 ];
-const CATEGORY: Record<string, string> = {
-  materials: 'Materials',
-  tools_equipment: 'Tools & equipment',
-  vehicle: 'Vehicle',
-  supplies: 'Shop supplies',
-  phone_software: 'Phone & software',
-  other: 'Other',
-};
-
 const dollars = (cents: number) => `$${Math.round(cents / 100).toLocaleString('en-US')}`;
 const shortDollars = (cents: number) => (cents >= 100_000 ? `${+(cents / 100_000).toFixed(1)}k` : dollars(cents));
 const monthLabel = (ym: string) => new Date(`${ym}-15T12:00:00`).toLocaleDateString('en-US', { month: 'short' });
@@ -196,7 +188,7 @@ export default function BusinessScreen() {
             </View>
             <BarList
               rows={summary.expensesByCategory.map((e) => ({
-                label: CATEGORY[e.category] ?? e.category,
+                label: expenseCategoryLabel(e.category),
                 sub: `${e.count} purchase${e.count === 1 ? '' : 's'}`,
                 value: e.cents,
                 display: dollars(e.cents),

@@ -13,6 +13,7 @@ export default function AppLayout() {
         <Stack.Screen name="photo" options={{ presentation: 'modal' }} />
         <Stack.Screen name="review/[id]" />
         <Stack.Screen name="job/[id]" />
+        <Stack.Screen name="customer/[id]" />
         <Stack.Screen name="account" options={{ presentation: 'modal' }} />
       </Stack>
     </PendingProvider>

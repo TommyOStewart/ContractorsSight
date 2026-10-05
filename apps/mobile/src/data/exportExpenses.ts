@@ -1,14 +1,6 @@
+import { expenseCategoryLabel } from '@contractorsight/shared';
 import { Platform, Share } from 'react-native';
 import { supabase } from '../lib/supabase';
-
-const CATEGORY: Record<string, string> = {
-  materials: 'Materials',
-  tools_equipment: 'Tools & equipment',
-  vehicle: 'Vehicle',
-  supplies: 'Shop supplies',
-  phone_software: 'Phone & software',
-  other: 'Other',
-};
 
 const cell = (v: string | number | null | undefined) => {
   const s = v === null || v === undefined ? '' : String(v);
@@ -30,7 +22,7 @@ export async function exportExpenses(orgId: string, orgName: string, year: numbe
     ['Date', 'Category', 'Description', 'Vendor', 'Job', 'Amount', 'Receipt photo'],
     ...(data ?? []).map((e) => [
       e.spent_on,
-      CATEGORY[e.category] ?? e.category,
+      expenseCategoryLabel(e.category),
       e.description,
       e.supply_houses?.name ?? e.vendor_name,
       e.jobs?.title,
