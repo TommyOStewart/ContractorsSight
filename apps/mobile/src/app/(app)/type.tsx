@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { View } from 'react-native';
 import { useSession } from '../../auth/SessionProvider';
@@ -9,6 +9,7 @@ import { BigButton, Display, Field, IconButton, Message, Screen, Small, TextButt
 export default function TypeScreen() {
   const { memberships } = useSession();
   const { refresh } = usePending();
+  const { jobId, jobTitle } = useLocalSearchParams<{ jobId?: string; jobTitle?: string }>();
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -20,7 +21,7 @@ export default function TypeScreen() {
     setNotice(null);
     setBusy(true);
     try {
-      const result = await worker.createCapture({ orgId: memberships[0]!.orgId, text: text.trim() });
+      const result = await worker.createCapture({ orgId: memberships[0]!.orgId, text: text.trim(), targetJobId: jobId });
       void refresh();
       if (result.changeSetId) router.replace(`/review/${result.changeSetId}`);
       else {
@@ -47,6 +48,7 @@ export default function TypeScreen() {
         <Display size={30}>Type it</Display>
         <IconButton icon="x" label="Close" onPress={() => router.back()} />
       </View>
+      {jobTitle && <Small>About: {jobTitle}</Small>}
       <Field
         label="What happened?"
         value={text}

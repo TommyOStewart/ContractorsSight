@@ -2,7 +2,7 @@ import { Feather } from '@expo/vector-icons';
 import * as Crypto from 'expo-crypto';
 import { RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, useAudioRecorder, useAudioRecorderState } from 'expo-audio';
 import { File } from 'expo-file-system';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSession } from '../../auth/SessionProvider';
@@ -24,12 +24,29 @@ const clock = (ms: number) => {
 export default function RecordScreen() {
   const { memberships } = useSession();
   const { refresh } = usePending();
+  // `jobId`: talking about a specific job. `revise`: talking a fix into a pending proposal.
+  const { jobId, revise } = useLocalSearchParams<{ jobId?: string; revise?: string }>();
   const recorder = useAudioRecorder({ ...RecordingPresets.HIGH_QUALITY, isMeteringEnabled: true });
   const state = useAudioRecorderState(recorder, 100);
   const [phase, setPhase] = useState<Phase>('starting');
   const [error, setError] = useState<string | null>(null);
   const [levels, setLevels] = useState<number[]>(() => Array(BARS).fill(0.08));
   const finishing = useRef(false);
+  const stopped = useRef(true);
+
+  /**
+   * Stops at most once per recording. The hook releases the native recorder when this screen
+   * unmounts (which also ends any recording), so nothing here touches it after navigation.
+   */
+  async function stopRecorder() {
+    if (stopped.current) return;
+    stopped.current = true;
+    try {
+      await recorder.stop();
+    } catch {
+      // Already stopped or released.
+    }
+  }
 
   async function start() {
     setError(null);
@@ -42,15 +59,13 @@ export default function RecordScreen() {
     await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: true });
     await recorder.prepareToRecordAsync();
     recorder.record();
+    stopped.current = false;
     finishing.current = false;
     setPhase('recording');
   }
 
   useEffect(() => {
     void start();
-    return () => {
-      if (recorder.isRecording) void recorder.stop();
-    };
     // Start once when the screen opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -73,16 +88,19 @@ export default function RecordScreen() {
     finishing.current = true;
     setPhase('sending');
     try {
-      await recorder.stop();
-      if (!recorder.uri) throw new Error('The recording was empty.');
+      await stopRecorder();
+      const uri = recorder.uri;
+      if (!uri) throw new Error('The recording was empty.');
       const orgId = memberships[0]!.orgId;
       // Upload first so the recording is kept even if processing fails.
       const path = `${orgId}/${Crypto.randomUUID()}.m4a`;
-      const bytes = await new File(recorder.uri).bytes();
+      const bytes = await new File(uri).bytes();
       const { error: uploadError } = await supabase.storage.from('captures').upload(path, bytes, { contentType: 'audio/mp4' });
       if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`);
 
-      const result = await worker.createAudioCapture({ orgId, audioPath: path });
+      const result = revise
+        ? await worker.revise(revise, { audioPath: path })
+        : await worker.createAudioCapture({ orgId, audioPath: path, targetJobId: jobId });
       void refresh();
       if (result.changeSetId) router.replace(`/review/${result.changeSetId}`);
       else {
@@ -97,7 +115,7 @@ export default function RecordScreen() {
 
   async function cancel() {
     finishing.current = true;
-    if (recorder.isRecording) await recorder.stop();
+    await stopRecorder();
     router.back();
   }
 
@@ -143,7 +161,11 @@ export default function RecordScreen() {
             <SecondaryButton title="Record again" icon="mic" onPress={() => void start()} />
           </View>
         ) : (
-          <Body muted>Talk like you'd tell the office: who, which job, what happened, what's needed.</Body>
+          <Body muted>
+            {revise
+              ? 'Say what to change, like "make it three couplings, not two" or "that was Jeb Walters, not Henderson."'
+              : "Talk like you'd tell the office: who, which job, what happened, what's needed."}
+          </Body>
         )}
       </View>
 

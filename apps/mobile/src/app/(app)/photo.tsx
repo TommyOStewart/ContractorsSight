@@ -3,7 +3,7 @@ import * as Crypto from 'expo-crypto';
 import { File } from 'expo-file-system';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSession } from '../../auth/SessionProvider';
@@ -32,6 +32,7 @@ async function prepare(page: Page): Promise<Uint8Array> {
 export default function PhotoScreen() {
   const { memberships } = useSession();
   const { refresh } = usePending();
+  const { jobId } = useLocalSearchParams<{ jobId?: string }>();
   const [pages, setPages] = useState<Page[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -82,7 +83,7 @@ export default function PhotoScreen() {
         if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`);
         paths.push(path);
       }
-      const result = await worker.createImageCapture({ orgId, imagePaths: paths });
+      const result = await worker.createImageCapture({ orgId, imagePaths: paths, targetJobId: jobId });
       void refresh();
       if (result.changeSetId) router.replace(`/review/${result.changeSetId}`);
       else setError(result.summary ?? 'Nothing to record in that photo.');
