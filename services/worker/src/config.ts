@@ -33,7 +33,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const parsed = envSchema.safeParse(env);
   if (!parsed.success) {
     const missing = parsed.error.issues.map((i) => i.path.join(".")).join(", ");
-    throw new Error(`Worker config invalid or missing: ${missing}. Copy services/worker/.env.example to .env.`);
+    throw new Error(`Worker config invalid or missing: ${missing}. Copy services/worker/.env.example to .env (locally) or set them as environment variables (on the host).`);
   }
   return parsed.data;
 }
