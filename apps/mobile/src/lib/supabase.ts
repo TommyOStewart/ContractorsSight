@@ -7,14 +7,18 @@ import { AppState } from 'react-native';
 const url = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const publishableKey = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
-if (!url || !publishableKey) {
-  throw new Error(
-    'Missing EXPO_PUBLIC_SUPABASE_URL or EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY. Copy apps/mobile/.env.example to apps/mobile/.env.',
-  );
-}
+/**
+ * Settings this build is missing. Locally they come from apps/mobile/.env; on EAS from the build
+ * profile's environment (DEPLOY.md). The root layout shows them instead of the app, because
+ * throwing here would close an installed app instantly with no explanation.
+ */
+export const missingConfig = [!url && 'EXPO_PUBLIC_SUPABASE_URL', !publishableKey && 'EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY'].filter(
+  (name): name is string => !!name,
+);
 
 // The app only ever holds the publishable key. Row-level security decides what a signed-in user can do.
-export const supabase = createClient<Database>(url, publishableKey, {
+// With settings missing the client gets placeholders and is never used (see missingConfig).
+export const supabase = createClient<Database>(url || 'http://missing-config.invalid', publishableKey || 'missing', {
   auth: {
     storage: AsyncStorage,
     autoRefreshToken: true,
