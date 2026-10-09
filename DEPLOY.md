@@ -35,7 +35,7 @@ https://openrouter.ai/settings/keys before you hand out the app.
 
 ## 2. Android install link with EAS (one time setup, then ~15 minutes per build)
 
-Run these in `apps/mobile`:
+Run these **inside `apps/mobile`** (`cd apps/mobile` first). Run from the repo root, EAS creates a second, empty app config there and the build fails at Prebuild:
 
 ```bash
 npx eas-cli@latest login

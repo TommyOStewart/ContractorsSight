@@ -44,6 +44,12 @@
     "scheme": "contractorsight",
     "experiments": {
       "typedRoutes": true
+    },
+    "owner": "thomasostewart",
+    "extra": {
+      "eas": {
+        "projectId": "3f2758ac-506e-4d4d-8984-2799c4e7fbdf"
+      }
     }
   }
 }
