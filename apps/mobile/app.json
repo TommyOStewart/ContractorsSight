@@ -7,7 +7,8 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.contractorsight.app"
     },
     "android": {
       "adaptiveIcon": {
@@ -16,7 +17,8 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.contractorsight.app"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -42,6 +44,12 @@
     "scheme": "contractorsight",
     "experiments": {
       "typedRoutes": true
+    },
+    "owner": "thomasostewart",
+    "extra": {
+      "eas": {
+        "projectId": "3f2758ac-506e-4d4d-8984-2799c4e7fbdf"
+      }
     }
   }
 }

@@ -193,6 +193,8 @@ pnpm db:reset                # re-apply all migrations from scratch
 pnpm --filter @contractorsight/worker start   # HTTP worker on :8787 (needs services/worker/.env)
 ```
 
+**Test builds for other people:** the worker runs on Railway (`railway.json`, `services/worker/Dockerfile`) and the app is built as an Android APK with EAS (`apps/mobile/eas.json`, profile `preview`). Setup steps are in [DEPLOY.md](DEPLOY.md).
+
 **Adding a tool:**
 
 1. Define it in `definitions.ts` and add it to `TOOLS`.

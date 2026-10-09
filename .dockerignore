@@ -1,0 +1,10 @@
+**/node_modules
+**/.env
+**/.env.*
+!**/.env.example
+**/.expo
+.git
+apps/mobile/src
+apps/mobile/assets
+supabase
+services/worker/evals/results
