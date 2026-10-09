@@ -72,4 +72,7 @@ export const worker = {
   updateOperation: (changeSetId: string, index: number, args: Record<string, unknown>) =>
     call<{ issues: ValidationIssue[] }>(`/change-sets/${changeSetId}/operations/${index}`, { args }),
   reject: (changeSetId: string) => call<{ ok: true }>(`/change-sets/${changeSetId}/reject`),
+  /** A hand edit: applied right away (no review), validated and audited like any other change. */
+  edit: (orgId: string, operations: { tool: string; args: Record<string, unknown> }[], baseJobVersions?: Record<string, number>) =>
+    call<{ ok: true; tempIdMap: Record<string, string> }>('/edits', { orgId, operations, baseJobVersions }),
 };
