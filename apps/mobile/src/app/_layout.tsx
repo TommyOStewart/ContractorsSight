@@ -5,7 +5,9 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
+import { Text, View } from 'react-native';
 import { SessionProvider, useSession } from '../auth/SessionProvider';
+import { missingConfig } from '../lib/supabase';
 import { colors } from '../ui/theme';
 
 // Keep the splash screen up until fonts are loaded and we know whether the user is signed in.
@@ -20,6 +22,8 @@ export default function RootLayout() {
     BarlowCondensed_700Bold,
     BarlowCondensed_800ExtraBold,
   });
+
+  if (missingConfig.length) return <MissingConfig />;
 
   return (
     <SessionProvider>
@@ -57,5 +61,21 @@ function RootNavigator({ fontsReady }: { fontsReady: boolean }) {
         <Stack.Screen name="(app)" />
       </Stack.Protected>
     </Stack>
+  );
+}
+
+/** A build made without its settings: say so plainly instead of crashing on launch. */
+function MissingConfig() {
+  useEffect(() => {
+    void SplashScreen.hideAsync();
+  }, []);
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.background, justifyContent: 'center', padding: 24, gap: 12 }}>
+      <StatusBar style="light" />
+      <Text style={{ color: colors.text, fontSize: 24, fontWeight: '700' }}>This build isn't set up yet</Text>
+      <Text style={{ color: colors.textSoft, fontSize: 17, lineHeight: 24 }}>
+        It was built without these settings: {missingConfig.join(', ')}. Add them to the build environment (see DEPLOY.md) and build again.
+      </Text>
+    </View>
   );
 }

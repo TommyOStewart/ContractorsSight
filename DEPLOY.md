@@ -35,11 +35,11 @@ https://openrouter.ai/settings/keys before you hand out the app.
 
 ## 2. Android install link with EAS (one time setup, then ~15 minutes per build)
 
-Run these **inside `apps/mobile`** (`cd apps/mobile` first). Run from the repo root, EAS creates a second, empty app config there and the build fails at Prebuild:
+Every EAS command must run **inside `apps/mobile`**. Run from the repo root, EAS creates a second, empty `app.json`/`eas.json` there and the build fails at Prebuild. The commands below start with the `cd` so each one works on its own, even in a fresh terminal at the repo root:
 
 ```bash
-npx eas-cli@latest login
-npx eas-cli@latest init
+cd apps/mobile; npx eas-cli@latest login
+cd apps/mobile; npx eas-cli@latest init
 ```
 
 `init` links the app to your Expo account and adds the project ID to `app.json`. Commit that change.
@@ -48,16 +48,19 @@ Tell the build where your services are. These values ship inside the app and are
 design (the publishable key only allows what Supabase's row-level security allows):
 
 ```bash
-npx eas-cli@latest env:set --name EXPO_PUBLIC_SUPABASE_URL --value https://<project-ref>.supabase.co --environment preview --visibility plaintext
-npx eas-cli@latest env:set --name EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY --value sb_publishable_... --environment preview --visibility plaintext
-npx eas-cli@latest env:set --name EXPO_PUBLIC_WORKER_URL --value https://<your-railway-domain> --environment preview --visibility plaintext
+cd apps/mobile; npx eas-cli@latest env:set --name EXPO_PUBLIC_SUPABASE_URL --value https://<project-ref>.supabase.co --environment preview --visibility plaintext
+cd apps/mobile; npx eas-cli@latest env:set --name EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY --value sb_publishable_... --environment preview --visibility plaintext
+cd apps/mobile; npx eas-cli@latest env:set --name EXPO_PUBLIC_WORKER_URL --value https://<your-railway-domain> --environment preview --visibility plaintext
 ```
 
 Build:
 
 ```bash
-npx eas-cli@latest build --profile preview --platform android
+cd apps/mobile; npx eas-cli@latest build --profile preview --platform android
 ```
+
+Check the settings first with `cd apps/mobile; npx eas-cli@latest env:list --environment preview`. A build
+made without them opens to a "This build isn't set up yet" screen.
 
 The first build asks to create an Android signing key; say yes (EAS stores it). When it
 finishes you get a link and a QR code. Send the link to testers. On their phone they open it,
