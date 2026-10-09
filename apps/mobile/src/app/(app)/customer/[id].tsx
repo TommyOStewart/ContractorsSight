@@ -2,8 +2,12 @@ import { Feather } from '@expo/vector-icons';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Linking, Pressable, StyleSheet, View } from 'react-native';
+import { useSession } from '../../../auth/SessionProvider';
 import { ContactActions } from '../../../contact/ContactActions';
+import { NoteComposer } from '../../../edit/NoteComposer';
+import { changedFields, saveEdit } from '../../../edit/saveEdit';
 import { supabase } from '../../../lib/supabase';
+import { OperationEditor } from '../../../review/OperationEditor';
 import { Body, Card, colors, Display, IconButton, Loading, Message, Screen, SectionLabel, Small, StatusChip, Strong } from '../../../ui';
 
 interface CustomerDetail {
@@ -61,13 +65,30 @@ async function loadCustomer(id: string): Promise<CustomerDetail | null> {
 
 export default function CustomerScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { memberships } = useSession();
+  const orgId = memberships[0]!.orgId;
   const [customer, setCustomer] = useState<CustomerDetail | null | undefined>(undefined);
+  /** 'client', a site ID, or null. */
+  const [editing, setEditing] = useState<string | null>(null);
 
+  const reload = useCallback(() => loadCustomer(id).then(setCustomer), [id]);
   useFocusEffect(
     useCallback(() => {
-      void loadCustomer(id).then(setCustomer);
-    }, [id]),
+      void reload();
+    }, [reload]),
   );
+
+  /** Saves only what changed, then reloads. Returns a problem to show, or null. */
+  async function save(tool: 'update_client' | 'update_site', key: Record<string, string>, before: Record<string, unknown>, next: Record<string, unknown>) {
+    const changes = changedFields(before, next);
+    if (Object.keys(changes).length) {
+      const problem = await saveEdit(orgId, [{ tool, args: { ...key, changes } }]);
+      if (problem) return problem;
+      await reload();
+    }
+    setEditing(null);
+    return null;
+  }
 
   if (customer === undefined) return <Loading />;
   if (customer === null)
@@ -95,10 +116,27 @@ export default function CustomerScreen() {
             </Pressable>
           )}
         </View>
+        <IconButton icon="edit-2" label="Edit customer" onPress={() => setEditing(editing === 'client' ? null : 'client')} />
       </View>
 
+      {editing === 'client' && (
+        <Card tone="accent" style={{ gap: 12 }}>
+          <Strong>Edit {customer.name}</Strong>
+          <OperationEditor
+            args={clientFields(customer)}
+            saveTitle="Save"
+            onSave={(next) => save('update_client', { clientId: customer.id }, clientFields(customer), next)}
+            onCancel={() => setEditing(null)}
+          />
+        </Card>
+      )}
+
       <ContactActions name={customer.name} phone={customer.phone} address={address} owedCents={owed} />
-      {!customer.phone && <Small color={colors.muted}>No phone number yet. Say it in a note ("Maria's number is …") to add it.</Small>}
+      {!customer.phone && editing !== 'client' && (
+        <Pressable accessibilityRole="button" onPress={() => setEditing('client')}>
+          <Small color={colors.accent}>No phone number yet. Tap to add one.</Small>
+        </Pressable>
+      )}
 
       <View style={styles.stats}>
         <Card style={styles.stat}>
@@ -139,40 +177,68 @@ export default function CustomerScreen() {
       {customer.sites.length > 0 && (
         <>
           <SectionLabel>{customer.sites.length === 1 ? 'Address' : 'Addresses'}</SectionLabel>
-          {customer.sites.map((s) => (
-            <Card key={s.id} style={{ gap: 4 }}>
-              <View style={styles.spread}>
-                <View style={{ flex: 1 }}>
-                  {s.label && <Strong>{s.label}</Strong>}
-                  <Body>{[s.line1, s.city].filter(Boolean).join(', ')}</Body>
+          {customer.sites.map((s) =>
+            editing === s.id ? (
+              <Card key={s.id} tone="accent" style={{ gap: 12 }}>
+                <Strong>Edit address</Strong>
+                <OperationEditor
+                  args={siteFields(s)}
+                  saveTitle="Save"
+                  onSave={(next) => save('update_site', { siteId: s.id }, siteFields(s), next)}
+                  onCancel={() => setEditing(null)}
+                />
+              </Card>
+            ) : (
+              <Card key={s.id} style={{ gap: 4 }} onPress={() => setEditing(s.id)}>
+                <View style={styles.spread}>
+                  <View style={{ flex: 1 }}>
+                    {s.label && <Strong>{s.label}</Strong>}
+                    <Body>{[s.line1, s.city].filter(Boolean).join(', ')}</Body>
+                  </View>
+                  <Feather name="edit-2" size={18} color={colors.muted} />
                 </View>
-                <Feather name="map-pin" size={20} color={colors.muted} />
-              </View>
-              {s.accessNotes && <Small color={colors.muted}>{s.accessNotes}</Small>}
-            </Card>
-          ))}
+                {s.accessNotes ? (
+                  <Small color={colors.muted}>{s.accessNotes}</Small>
+                ) : (
+                  <Small color={colors.muted}>Tap to add a gate code or access notes</Small>
+                )}
+              </Card>
+            ),
+          )}
         </>
       )}
 
-      {(customer.notes || customer.jobNotes.length > 0) && (
-        <>
-          <SectionLabel>Notes</SectionLabel>
-          {customer.notes && (
-            <Card>
-              <Body>{customer.notes}</Body>
-            </Card>
-          )}
-          {customer.jobNotes.map((n) => (
-            <Card key={n.id}>
-              <Body>{n.body}</Body>
-              <Small color={colors.muted}>{day(n.createdAt)}</Small>
-            </Card>
-          ))}
-        </>
+      <SectionLabel>Notes</SectionLabel>
+      <NoteComposer
+        onSave={async (body) => {
+          const problem = await saveEdit(orgId, [{ tool: 'add_note', args: { clientId: customer.id, body } }]);
+          if (!problem) await reload();
+          return problem;
+        }}
+      />
+      {customer.notes && (
+        <Card>
+          <Body>{customer.notes}</Body>
+        </Card>
       )}
+      {customer.jobNotes.map((n) => (
+        <Card key={n.id}>
+          <Body>{n.body}</Body>
+          <Small color={colors.muted}>{day(n.createdAt)}</Small>
+        </Card>
+      ))}
     </Screen>
   );
 }
+
+// Every editable field is listed (blank when empty) so the editor shows it.
+const clientFields = (c: CustomerDetail) => ({ name: c.name, phone: c.phone ?? '', email: c.email ?? '', notes: c.notes ?? '' });
+const siteFields = (s: CustomerDetail['sites'][number]) => ({
+  label: s.label ?? '',
+  line1: s.line1,
+  city: s.city ?? '',
+  accessNotes: s.accessNotes ?? '',
+});
 
 const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'flex-start', gap: 4, marginLeft: -12 },

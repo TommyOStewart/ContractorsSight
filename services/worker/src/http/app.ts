@@ -13,6 +13,7 @@ import {
   type ImageDeps,
 } from "../capture/captureService";
 import { approveChangeSet, ChangeSetError, rejectChangeSet, updateOperation } from "../commit/changeSetService";
+import { applyManualEdit } from "../commit/manualEdits";
 import type { Sql } from "../db/sql";
 
 /** Resolves a bearer token to a user ID, or null if the token is missing, invalid, or expired. */
@@ -140,6 +141,20 @@ export function createApp({ sql, verifyUser, capture, audio, images }: AppDeps) 
     const body = editBody.safeParse(await c.req.json().catch(() => null));
     if (!body.success) return c.json({ error: "Invalid edit." }, 400);
     return c.json(await updateOperation(sql, { changeSetId: id.data, userId: c.get("userId"), index: index.data, args: body.data.args }));
+  });
+
+  const editsBody = z.object({
+    orgId: uuid,
+    operations: z.array(z.object({ tool: z.string(), args: z.unknown() })).min(1).max(20),
+    baseJobVersions: z.record(uuid, z.int().nonnegative()).optional(),
+  });
+
+  // A hand edit from the app (no capture, no LLM): validated, applied and audited as `manual`.
+  app.post("/edits", async (c) => {
+    const body = editsBody.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json({ error: "Invalid edit." }, 400);
+    const result = await applyManualEdit(sql, { userId: c.get("userId"), ...body.data });
+    return result.ok ? c.json(result) : c.json(result, 409);
   });
 
   app.post("/change-sets/:id/answer", async (c) => {

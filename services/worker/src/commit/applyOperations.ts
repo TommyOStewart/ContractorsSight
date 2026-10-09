@@ -15,8 +15,9 @@ export interface ApplyContext {
   orgId: string;
   actorUserId: string;
   source: AuditSource;
-  changeSetId: string;
-  captureId: string;
+  /** Both null for a manual edit made directly in the app. */
+  changeSetId: string | null;
+  captureId: string | null;
 }
 
 /** postgres.js rejects `undefined`; optional tool args that weren't given are simply left out. */
@@ -139,6 +140,16 @@ const APPLIERS: { [N in StagedToolName]: Applier<N> } = {
   async update_job_fields(args, ctx) {
     const { before, after } = await updateOne(ctx, "jobs", args.jobId, { ...args.changes });
     await audit(ctx, { entityType: "job", entityId: args.jobId, action: "update", before, after });
+  },
+
+  async update_client(args, ctx) {
+    const { before, after } = await updateOne(ctx, "clients", args.clientId, { ...args.changes });
+    await audit(ctx, { entityType: "client", entityId: args.clientId, action: "update", before, after });
+  },
+
+  async update_site(args, ctx) {
+    const { before, after } = await updateOne(ctx, "sites", args.siteId, { ...args.changes });
+    await audit(ctx, { entityType: "site", entityId: args.siteId, action: "update", before, after });
   },
 
   async revise_quote(args, ctx) {

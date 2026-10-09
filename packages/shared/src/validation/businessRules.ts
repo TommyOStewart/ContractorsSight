@@ -174,6 +174,14 @@ export const BUSINESS_RULES: { [N in StagedToolName]: Rule<N> } = {
     if (job && args.changes.siteId) siteBelongsToClient(ctx, args.changes.siteId, job.clientId, ["changes", "siteId"]);
   },
 
+  update_client(args, ctx) {
+    requireChanges(ctx, args.changes);
+  },
+
+  update_site(args, ctx) {
+    requireChanges(ctx, args.changes);
+  },
+
   revise_quote(args, ctx) {
     const job = openJob(ctx, args.jobId, ["jobId"]);
     if (!job) return;

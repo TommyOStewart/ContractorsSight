@@ -10,7 +10,8 @@ import type { StagedToolName, ToolArgs } from "../tools/registry";
  * (ValidationContext.orgId), never from the payload.
  */
 export const changeSetDraftSchema = z.strictObject({
-  captureId: z.uuid(),
+  /** Null for a manual edit made directly in the app (no capture, no LLM). */
+  captureId: z.uuid().nullable(),
   /** Version of every existing job the operations touch, as read when the ChangeSet was built. */
   baseJobVersions: z.record(z.uuid(), z.int().nonnegative()),
   operations: z
@@ -31,7 +32,7 @@ export type StagedOperation = {
 }[StagedToolName];
 
 export interface ValidatedChangeSet {
-  captureId: string;
+  captureId: string | null;
   baseJobVersions: Record<string, number>;
   operations: StagedOperation[];
 }

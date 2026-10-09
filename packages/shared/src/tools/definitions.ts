@@ -150,6 +150,43 @@ export const updateJobFields = defineTool({
   }),
 });
 
+export const updateClient = defineTool({
+  name: "update_client",
+  kind: "mutation",
+  description: "Change a client's contact details: name, phone, email, or the notes kept about them. Addresses are on sites (update_site).",
+  input: z.strictObject({
+    clientId: entityRef("client", "Client to update."),
+    changes: z
+      .strictObject({
+        name: optionalText(200, "Corrected name."),
+        phone: optionalText(40, "New phone number."),
+        email: z.email().optional().meta({ description: "New email address." }),
+        notes: optionalText(2000, "Notes about the client. Replaces the old notes."),
+      })
+      .meta({ description: "Only the fields that change." }),
+  }),
+});
+
+export const updateSite = defineTool({
+  name: "update_site",
+  kind: "mutation",
+  description: "Correct a service address or its access notes (gate code, where the shutoff is, dog in yard).",
+  input: z.strictObject({
+    siteId: entityRef("site", "Site to update."),
+    changes: z
+      .strictObject({
+        label: optionalText(80, 'Short name, e.g. "Rental on 5th".'),
+        line1: optionalText(200, "Street address."),
+        line2: optionalText(200, "Apartment, suite, unit."),
+        city: optionalText(100, "City."),
+        region: optionalText(100, "State or province."),
+        postalCode: optionalText(20, "ZIP or postal code."),
+        accessNotes: optionalText(2000, "How to get in and what to know on arrival. Replaces the old notes."),
+      })
+      .meta({ description: "Only the fields that change." }),
+  }),
+});
+
 const laborLineSchema = z.strictObject({
   kind: z.literal("labor"),
   description: text(300, 'What the labor covers, e.g. "Remove and haul away old heater".'),
@@ -383,6 +420,8 @@ export const TOOLS = [
   addMaterial,
   addNote,
   updateJobFields,
+  updateClient,
+  updateSite,
   reviseQuote,
   updateMaterial,
   removeMaterial,
