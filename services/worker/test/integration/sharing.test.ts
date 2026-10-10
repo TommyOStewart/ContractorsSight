@@ -2,7 +2,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { approveChangeSet } from "../../src/commit/changeSetService";
 import { createApp } from "../../src/http/app";
 import { approveSharedQuote, loadSharedDocument, shareInvoice, shareQuote } from "../../src/sharing/shareService";
-import { seedOrg, sql, stageChangeSet } from "./seed";
+import { jobVersion, seedOrg, sql, stageChangeSet } from "./seed";
 
 afterAll(() => sql.end());
 
@@ -12,18 +12,22 @@ type Org = Awaited<ReturnType<typeof seedOrg>>;
 async function leadWithQuote(org: Org) {
   const [job] = await sql<{ id: string }[]>`
     insert into jobs (org_id, client_id, title) values (${org.orgId}, ${org.clientId}, 'Tankless install') returning id`;
-  const staged = await stageChangeSet(org, [
-    {
-      tool: "revise_quote",
-      args: {
-        jobId: job!.id,
-        lineItems: [
-          { kind: "material", description: "Tankless heater", quantity: 1, unitPriceDollars: 1800 },
-          { kind: "labor", description: "Install", hours: 6, hourlyRateDollars: 125 },
-        ],
+  const staged = await stageChangeSet(
+    org,
+    [
+      {
+        tool: "revise_quote",
+        args: {
+          jobId: job!.id,
+          lineItems: [
+            { kind: "material", description: "Tankless heater", quantity: 1, unitPriceDollars: 1800 },
+            { kind: "labor", description: "Install", hours: 6, hourlyRateDollars: 125 },
+          ],
+        },
       },
-    },
-  ]);
+    ],
+    { [job!.id]: await jobVersion(job!.id) },
+  );
   const approved = await approveChangeSet(sql, { changeSetId: staged.changeSetId, userId: org.userId });
   if (!approved.ok) throw new Error(JSON.stringify(approved.issues));
   const [quote] = await sql<{ id: string }[]>`select id from quotes where job_id = ${job!.id}`;
@@ -83,9 +87,16 @@ describe("the customer approving", () => {
     const { jobId, quoteId } = await leadWithQuote(org);
     const { token } = await shareQuote(sql, { userId: org.userId, quoteId });
 
-    const revision = await stageChangeSet(org, [
-      { tool: "revise_quote", args: { jobId, basedOnQuoteId: quoteId, lineItems: [{ kind: "labor", description: "Install", hours: 5, hourlyRateDollars: 125 }] } },
-    ]);
+    const revision = await stageChangeSet(
+      org,
+      [
+        {
+          tool: "revise_quote",
+          args: { jobId, basedOnQuoteId: quoteId, lineItems: [{ kind: "labor", description: "Install", hours: 5, hourlyRateDollars: 125 }] },
+        },
+      ],
+      { [jobId]: await jobVersion(jobId) },
+    );
     expect((await approveChangeSet(sql, { changeSetId: revision.changeSetId, userId: org.userId })).ok).toBe(true);
 
     await expect(approveSharedQuote(sql, { token, name: "Jeb" })).rejects.toMatchObject({ status: 409 });
