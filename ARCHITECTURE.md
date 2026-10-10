@@ -130,6 +130,14 @@ lead → quoted → accepted → scheduled → in_progress → completed → inv
 - `expenses` hold every business purchase with a category (`expense_category`) for the tax view. `record_purchase` writes a `materials` expense and links its parts (`material_items.expense_id`); `record_expense` covers everything else. Categories (roughly Schedule C lines, migration 08) organize; the app never claims something is deductible. Labels live in `EXPENSE_CATEGORY_LABELS`.
 - `jobs.job_type` is free text in the database (other trades will bring their own lists), but the tools only accept `JOB_TYPES` from `packages/shared`, so filters and the profit-by-type chart group cleanly.
 
+## Sending quotes and invoices to customers
+
+- **Send** on a job's quote or invoice calls the worker (`/quotes/:id/share`, `/invoices/:id/share`), which marks it sent and returns a link. The app opens the phone's share sheet (Messages, email, …) with a short message and the link. Sending a quote for a lead moves the job to `quoted` (a normal validated status change, audited as `manual`).
+- The link is `/p/<token>` on the worker: a 256-bit random token stored on the quote or invoice (`share_token`, migration `20261010000001`). It's the only credential for that one document. The page is server-rendered HTML with no scripts, no caching, `noindex`, and `no-referrer`.
+- **Customer approval** (typing their name on the quote page) goes through `validateAndApply` like any other change: the job moves `quoted → accepted` (or `lead → quoted → accepted`), audited with source `customer` and no user. The quote records `accepted_at` and `accepted_by_name`. Only the latest version can be approved; older links say they've been replaced.
+- Links use `PUBLIC_URL` if set, otherwise the address the request came in on (Railway's domain).
+- Online payment (Stripe Connect, each contractor's own account) is next.
+
 ## Business dashboard
 
 - The same Expo app runs in a browser (`expo start --web`); a **Business** tab appears there, and on phones it opens from Account.

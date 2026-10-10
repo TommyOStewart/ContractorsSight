@@ -53,9 +53,10 @@ export type ChangeSetStatus = (typeof CHANGE_SET_STATUSES)[number];
 
 /**
  * Where a committed change came from. `text` is a typed capture that went through
- * the LLM pipeline; `manual` is a direct edit in the app with no LLM involved.
+ * the LLM pipeline; `manual` is a direct edit in the app with no LLM involved;
+ * `customer` is the contractor's customer acting on a shared quote or invoice page.
  */
-export const AUDIT_SOURCES = ["manual", "voice", "image", "text", "system"] as const;
+export const AUDIT_SOURCES = ["manual", "voice", "image", "text", "system", "customer"] as const;
 export type AuditSource = (typeof AUDIT_SOURCES)[number];
 
 export const AUDIT_SOURCE_BY_CAPTURE_TYPE: Record<CaptureType, AuditSource> = {

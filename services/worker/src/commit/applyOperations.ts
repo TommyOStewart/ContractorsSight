@@ -13,7 +13,8 @@ type Row = Record<string, unknown>;
 export interface ApplyContext {
   tx: Tx;
   orgId: string;
-  actorUserId: string;
+  /** Null when the change wasn't made by a signed-in user (a customer on a shared page). */
+  actorUserId: string | null;
   source: AuditSource;
   /** Both null for a manual edit made directly in the app. */
   changeSetId: string | null;
