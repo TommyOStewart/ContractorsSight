@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { ValidationIssue } from "@contractorsight/shared";
 import type postgres from "postgres";
 import { ChangeSetError } from "../commit/changeSetService";
@@ -129,7 +130,16 @@ async function failCapture(sql: Sql, captureId: string, error: unknown): Promise
  */
 export async function createTextCapture(
   deps: CaptureDeps,
-  input: { userId: string; orgId: string; text: string; targetJobId?: string; captureType?: "audio" | "text"; captureId?: string },
+  input: {
+    userId: string;
+    orgId: string;
+    text: string;
+    targetJobId?: string;
+    captureType?: "audio" | "text";
+    captureId?: string;
+    /** ID the app chose for the new capture, so it can find the result if the connection drops. */
+    clientCaptureId?: string;
+  },
 ): Promise<CaptureResult> {
   const { sql } = deps;
   await requireMember(sql, input.orgId, input.userId);
@@ -147,8 +157,8 @@ export async function createTextCapture(
     await sql`update captures set raw_text = ${input.text}, status = 'processing' where id = ${captureId} and org_id = ${input.orgId}`;
   } else {
     const [capture] = await sql<{ id: string }[]>`
-      insert into captures (org_id, created_by, type, raw_text, target_job_id, status)
-      values (${input.orgId}, ${input.userId}, ${captureType}, ${input.text}, ${input.targetJobId ?? null}, 'processing')
+      insert into captures (id, org_id, created_by, type, raw_text, target_job_id, status)
+      values (${input.clientCaptureId ?? randomUUID()}, ${input.orgId}, ${input.userId}, ${captureType}, ${input.text}, ${input.targetJobId ?? null}, 'processing')
       returning id`;
     captureId = capture!.id;
   }
@@ -279,7 +289,7 @@ function requireOrgPath(orgId: string, path: string) {
  */
 export async function createAudioCapture(
   deps: CaptureDeps & AudioDeps,
-  input: { userId: string; orgId: string; accessToken: string; audioPath: string; targetJobId?: string },
+  input: { userId: string; orgId: string; accessToken: string; audioPath: string; targetJobId?: string; clientCaptureId?: string },
 ): Promise<CaptureResult & { transcript: string }> {
   const { sql } = deps;
   await requireMember(sql, input.orgId, input.userId);
@@ -287,8 +297,8 @@ export async function createAudioCapture(
   const targetJob = await loadTargetJob(sql, input.orgId, input.targetJobId);
 
   const [capture] = await sql<{ id: string }[]>`
-    insert into captures (org_id, created_by, type, target_job_id, status)
-    values (${input.orgId}, ${input.userId}, 'audio', ${input.targetJobId ?? null}, 'processing')
+    insert into captures (id, org_id, created_by, type, target_job_id, status)
+    values (${input.clientCaptureId ?? randomUUID()}, ${input.orgId}, ${input.userId}, 'audio', ${input.targetJobId ?? null}, 'processing')
     returning id`;
   const captureId = capture!.id;
   await sql`
@@ -317,7 +327,7 @@ export async function createAudioCapture(
  */
 export async function createImageCapture(
   deps: CaptureDeps & ImageDeps,
-  input: { userId: string; orgId: string; accessToken: string; imagePaths: string[]; targetJobId?: string },
+  input: { userId: string; orgId: string; accessToken: string; imagePaths: string[]; targetJobId?: string; clientCaptureId?: string },
 ): Promise<CaptureResult & { transcript: string }> {
   const { sql } = deps;
   await requireMember(sql, input.orgId, input.userId);
@@ -325,8 +335,8 @@ export async function createImageCapture(
   const targetJob = await loadTargetJob(sql, input.orgId, input.targetJobId);
 
   const [capture] = await sql<{ id: string }[]>`
-    insert into captures (org_id, created_by, type, target_job_id, status)
-    values (${input.orgId}, ${input.userId}, 'image', ${input.targetJobId ?? null}, 'processing')
+    insert into captures (id, org_id, created_by, type, target_job_id, status)
+    values (${input.clientCaptureId ?? randomUUID()}, ${input.orgId}, ${input.userId}, 'image', ${input.targetJobId ?? null}, 'processing')
     returning id`;
   const captureId = capture!.id;
   for (const path of input.imagePaths) {

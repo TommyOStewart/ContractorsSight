@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, it } from "vitest";
 import { answerQuestion, correctCapture, createAudioCapture, createImageCapture, createTextCapture, localDay } from "../../src/capture/captureService";
 import { updateOperation } from "../../src/commit/changeSetService";
@@ -78,6 +79,16 @@ describe("createTextCapture", () => {
     expect(result.changeSetId).toBeNull();
     const [capture] = await sql`select status from captures where id = ${result.captureId}`;
     expect(capture!.status).toBe("committed");
+  });
+
+  it("uses the ID the app chose, so the app can find the result after a dropped connection", async () => {
+    const org = await seedOrg();
+    const clientCaptureId = randomUUID();
+    const result = await createTextCapture(
+      { sql, model: scripted([{ text: "Nothing to record.", toolCalls: [], usage }]), data, timezone: "America/Chicago" },
+      { userId: org.userId, orgId: org.orgId, text: "grab coffee filters", clientCaptureId },
+    );
+    expect(result.captureId).toBe(clientCaptureId);
   });
 
   it("refuses a company the user doesn't belong to", async () => {

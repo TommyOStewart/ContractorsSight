@@ -1,8 +1,9 @@
 import { Feather } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback } from 'react';
-import { View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { usePending } from '../../../data/PendingProvider';
+import { captureErrorMessage } from '../../../lib/worker';
 import { Body, Card, colors, Display, Screen, Small, Strong } from '../../../ui';
 
 const SOURCE: Record<string, { icon: 'mic' | 'camera' | 'type'; label: string }> = {
@@ -21,7 +22,7 @@ function ago(iso: string) {
 }
 
 export default function ReviewListScreen() {
-  const { items, refresh } = usePending();
+  const { items, inFlight, refresh } = usePending();
   useFocusEffect(
     useCallback(() => {
       void refresh();
@@ -31,7 +32,24 @@ export default function ReviewListScreen() {
   return (
     <Screen>
       <Display>Check these</Display>
-      {items.length === 0 ? (
+      {inFlight.map((c) => {
+        const source = SOURCE[c.captureType] ?? SOURCE.text!;
+        return c.status === 'processing' ? (
+          <Card key={c.id} style={styles.working}>
+            <ActivityIndicator color={colors.accent} />
+            <View style={{ flex: 1 }}>
+              <Strong size={17}>Working on your {source.label.toLowerCase()}…</Strong>
+              <Small color={colors.muted}>It'll show up here in a few seconds. You can leave the app.</Small>
+            </View>
+          </Card>
+        ) : (
+          <Card key={c.id} tone="danger">
+            <Strong size={17}>Couldn't finish your {source.label.toLowerCase()}</Strong>
+            <Small>{captureErrorMessage(c.error)}</Small>
+          </Card>
+        );
+      })}
+      {items.length === 0 && inFlight.length === 0 ? (
         <Card>
           <Strong>All caught up</Strong>
           <Body muted>Nothing is waiting. New notes show up here after you talk, type, or snap a photo.</Body>
@@ -59,3 +77,7 @@ export default function ReviewListScreen() {
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  working: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+});
