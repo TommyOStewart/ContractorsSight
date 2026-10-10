@@ -1,8 +1,17 @@
-import { computeBaseJobVersions, resolveTempIds, validateChangeSet, type ValidationIssue } from "@contractorsight/shared";
+import {
+  computeBaseJobVersions,
+  resolveTempIds,
+  validateChangeSet,
+  type AuditSource,
+  type ValidationIssue,
+} from "@contractorsight/shared";
+import type postgres from "postgres";
 import { PostgresValidationRepository } from "../db/PostgresValidationRepository";
 import type { Sql } from "../db/sql";
 import { applyOperations } from "./applyOperations";
 import { ChangeSetError } from "./changeSetService";
+
+type Tx = postgres.TransactionSql<Record<string, never>>;
 
 /**
  * Tools the app may call directly when someone edits a record by hand. Captures can use every
@@ -44,24 +53,47 @@ export async function applyManualEdit(
   return sql.begin(async (tx) => {
     const [member] = await tx`select 1 from org_members where org_id = ${input.orgId} and user_id = ${input.userId}`;
     if (!member) throw new ChangeSetError(404, "Company not found.");
-
-    const repository = new PostgresValidationRepository(tx, { lockJobs: true });
-    const current = await computeBaseJobVersions(input.operations, repository);
-    const validation = await validateChangeSet(
-      { captureId: null, baseJobVersions: { ...current, ...input.baseJobVersions }, operations: input.operations },
-      { orgId: input.orgId, repository },
-    );
-    if (!validation.ok) return { ok: false, issues: validation.issues };
-
-    const resolved = resolveTempIds(validation.changeSet);
-    await applyOperations(resolved.operations, {
-      tx,
+    return validateAndApply(tx, {
       orgId: input.orgId,
       actorUserId: input.userId,
       source: "manual",
-      changeSetId: null,
-      captureId: null,
+      operations: input.operations,
+      baseJobVersions: input.baseJobVersions,
     });
-    return { ok: true, tempIdMap: resolved.tempIdMap };
   });
+}
+
+/**
+ * The shared core of every change that isn't an approved ChangeSet (hand edits, a customer
+ * approving a quote): validate against the same rules, then apply with audit events, inside the
+ * caller's transaction. Jobs without a given base version are checked against their current one.
+ */
+export async function validateAndApply(
+  tx: Tx,
+  input: {
+    orgId: string;
+    actorUserId: string | null;
+    source: AuditSource;
+    operations: { tool: string; args: unknown }[];
+    baseJobVersions?: Record<string, number>;
+  },
+): Promise<ManualEditResult> {
+  const repository = new PostgresValidationRepository(tx, { lockJobs: true });
+  const current = await computeBaseJobVersions(input.operations, repository);
+  const validation = await validateChangeSet(
+    { captureId: null, baseJobVersions: { ...current, ...input.baseJobVersions }, operations: input.operations },
+    { orgId: input.orgId, repository },
+  );
+  if (!validation.ok) return { ok: false, issues: validation.issues };
+
+  const resolved = resolveTempIds(validation.changeSet);
+  await applyOperations(resolved.operations, {
+    tx,
+    orgId: input.orgId,
+    actorUserId: input.actorUserId,
+    source: input.source,
+    changeSetId: null,
+    captureId: null,
+  });
+  return { ok: true, tempIdMap: resolved.tempIdMap };
 }

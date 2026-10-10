@@ -1,10 +1,11 @@
 import { Feather } from '@expo/vector-icons';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { JOB_STATUS_TRANSITIONS, type JobStatus } from '@contractorsight/shared';
 import { useSession } from '../../../auth/SessionProvider';
 import { ContactActions } from '../../../contact/ContactActions';
+import { sendDocument } from '../../../contact/sendDocument';
 import { NoteComposer } from '../../../edit/NoteComposer';
 import { changedFields, saveEdit } from '../../../edit/saveEdit';
 import { ScheduleEditor } from '../../../edit/ScheduleEditor';
@@ -41,8 +42,17 @@ interface JobDetail {
   scheduledEnd: string | null;
   client: { id: string; name: string; phone: string | null; email: string | null } | null;
   site: { line1: string; city: string | null; label: string | null } | null;
-  quote: { version: number; totalCents: number; lines: { description: string; quantity: number; unit: string | null; unitPriceCents: number }[] } | null;
-  invoices: { number: number; status: string; totalCents: number; paidCents: number; issuedOn: string }[];
+  quote: {
+    id: string;
+    version: number;
+    status: string;
+    sentAt: string | null;
+    acceptedAt: string | null;
+    acceptedByName: string | null;
+    totalCents: number;
+    lines: { description: string; quantity: number; unit: string | null; unitPriceCents: number }[];
+  } | null;
+  invoices: { id: string; number: number; status: string; totalCents: number; paidCents: number; issuedOn: string; sentAt: string | null }[];
   materials: { id: string; description: string; quantity: number; unit: string | null; status: string; unitCostCents: number | null }[];
   notes: { id: string; body: string; createdAt: string }[];
 }
@@ -66,11 +76,18 @@ async function loadJob(id: string): Promise<JobDetail | null> {
   const [quotes, invoices, materials, notes] = await Promise.all([
     supabase
       .from('quotes')
-      .select('id, version, total_cents, quote_line_items (position, description, quantity, unit, unit_price_cents)')
+      .select(
+        'id, version, status, sent_at, accepted_at, accepted_by_name, total_cents, quote_line_items (position, description, quantity, unit, unit_price_cents)',
+      )
       .eq('job_id', id)
       .order('version', { ascending: false })
       .limit(1),
-    supabase.from('invoices').select('number, status, total_cents, issued_on, payments (amount_cents)').eq('job_id', id).neq('status', 'void').order('number'),
+    supabase
+      .from('invoices')
+      .select('id, number, status, total_cents, issued_on, sent_at, payments (amount_cents)')
+      .eq('job_id', id)
+      .neq('status', 'void')
+      .order('number'),
     supabase
       .from('material_items')
       .select('id, description, quantity, unit, status, unit_cost_cents')
@@ -93,7 +110,12 @@ async function loadJob(id: string): Promise<JobDetail | null> {
     site: j.sites,
     quote: q
       ? {
+          id: q.id,
           version: q.version,
+          status: q.status,
+          sentAt: q.sent_at,
+          acceptedAt: q.accepted_at,
+          acceptedByName: q.accepted_by_name,
           totalCents: Number(q.total_cents),
           lines: [...(q.quote_line_items ?? [])]
             .sort((a, b) => a.position - b.position)
@@ -101,6 +123,8 @@ async function loadJob(id: string): Promise<JobDetail | null> {
         }
       : null,
     invoices: (invoices.data ?? []).map((i) => ({
+      id: i.id,
+      sentAt: i.sent_at,
       number: i.number,
       status: i.status,
       totalCents: Number(i.total_cents),
@@ -123,10 +147,23 @@ export default function JobScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { memberships } = useSession();
   const orgId = memberships[0]!.orgId;
+  const company = memberships[0]!.orgName;
   const [job, setJob] = useState<JobDetail | null | undefined>(undefined);
   /** 'details', 'schedule', 'status', 'add-material', a material ID, or null. */
   const [editing, setEditing] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  /** Which document is being sent, and anything to show about it afterwards. */
+  const [sending, setSending] = useState<string | null>(null);
+  const [sendNote, setSendNote] = useState<{ id: string; message: string; url?: string } | null>(null);
+
+  async function send(kind: 'quote' | 'invoice', id: string, invoiceNumber?: number) {
+    setSending(id);
+    setSendNote(null);
+    const result = await sendDocument({ kind, id, company, customerName: job!.client?.name ?? null, jobTitle: job!.title, invoiceNumber });
+    setSending(null);
+    if (!result.ok) setSendNote({ id, message: result.message, url: result.url });
+    await reload();
+  }
 
   // Reload whenever the screen comes back into view (e.g. after saving a capture about this job).
   const reload = useCallback(() => loadJob(id).then(setJob), [id]);
@@ -298,6 +335,22 @@ export default function JobScreen() {
               <Small>{money(Math.round(l.quantity * l.unitPriceCents))}</Small>
             </View>
           ))}
+          {job.quote.acceptedAt ? (
+            <Small color={colors.success}>
+              Approved{job.quote.acceptedByName ? ` by ${job.quote.acceptedByName}` : ''} {day(job.quote.acceptedAt)}
+            </Small>
+          ) : job.quote.sentAt ? (
+            <Small color={colors.muted}>Sent {day(job.quote.sentAt)}. Waiting for the customer to approve.</Small>
+          ) : null}
+          {job.quote.status !== 'superseded' && job.quote.status !== 'rejected' && (
+            <SecondaryButton
+              title={job.quote.acceptedAt ? 'Send a copy' : job.quote.sentAt ? 'Send again' : 'Send to customer'}
+              icon="send"
+              busy={sending === job.quote.id}
+              onPress={() => void send('quote', job.quote!.id)}
+            />
+          )}
+          <SendNote note={sendNote} id={job.quote.id} />
         </Card>
       ) : (
         <Small color={colors.muted}>No quote yet. Say the price breakdown and it'll be drafted for you.</Small>
@@ -315,8 +368,17 @@ export default function JobScreen() {
                   <Strong>{money(inv.totalCents)}</Strong>
                 </View>
                 <Small color={owed > 0 ? colors.accent : colors.success}>
-                  {owed > 0 ? `Owes ${money(owed)}` : 'Paid in full'} · sent {day(inv.issuedOn)}
+                  {owed > 0 ? `Owes ${money(owed)}` : 'Paid in full'} · {inv.sentAt ? `sent ${day(inv.sentAt)}` : `made ${day(inv.issuedOn)}, not sent yet`}
                 </Small>
+                {owed > 0 && (
+                  <SecondaryButton
+                    title={inv.sentAt ? 'Send again' : 'Send to customer'}
+                    icon="send"
+                    busy={sending === inv.id}
+                    onPress={() => void send('invoice', inv.id, inv.number)}
+                  />
+                )}
+                <SendNote note={sendNote} id={inv.id} />
               </Card>
             );
           })}
@@ -390,6 +452,21 @@ export default function JobScreen() {
   );
 }
 
+/** What happened after tapping Send, under the document it was about. */
+function SendNote({ note, id }: { note: { id: string; message: string; url?: string } | null; id: string }) {
+  if (!note || note.id !== id) return null;
+  return (
+    <View style={{ gap: 4 }}>
+      <Small color={note.url ? colors.textSoft : colors.danger}>{note.message}</Small>
+      {note.url && (
+        <Text selectable style={styles.link}>
+          {note.url}
+        </Text>
+      )}
+    </View>
+  );
+}
+
 const nextStatuses = (status: JobStatus) => JOB_STATUS_TRANSITIONS[status];
 
 // Every editable field is listed (blank when empty) so the editor shows it.
@@ -406,6 +483,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'flex-start', gap: 4, marginLeft: -12 },
   contactRow: { flexDirection: 'row', gap: 10, marginTop: 6 },
   spread: { flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
+  link: { color: colors.accent, fontSize: 15 },
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start' },
   choices: { gap: 8 },
   materialRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12 },

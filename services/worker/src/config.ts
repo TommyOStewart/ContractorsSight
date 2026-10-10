@@ -7,6 +7,8 @@ const envSchema = z.object({
   /** Used only to verify users' access tokens. */
   SUPABASE_PUBLISHABLE_KEY: z.string().min(1),
   PORT: z.coerce.number().int().default(8787),
+  /** Base address for customer links to quotes and invoices; defaults to the address requests arrive on. */
+  PUBLIC_URL: z.url().optional(),
   /** 0.0.0.0 so a phone on the same Wi-Fi can reach a worker running on a dev PC. */
   HOST: z.string().default("0.0.0.0"),
 

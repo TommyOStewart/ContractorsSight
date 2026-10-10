@@ -28,7 +28,7 @@ const images = config.OPENROUTER_API_KEY
   ? { imageReader: new OpenRouterImageReader({ apiKey: config.OPENROUTER_API_KEY, model: config.READ_IMAGE_MODEL }), downloadFile }
   : undefined;
 
-const app = createApp({ sql, verifyUser: supabaseVerifyUser(config.SUPABASE_URL, config.SUPABASE_PUBLISHABLE_KEY), capture, audio, images });
+const app = createApp({ sql, verifyUser: supabaseVerifyUser(config.SUPABASE_URL, config.SUPABASE_PUBLISHABLE_KEY), capture, audio, images, publicUrl: config.PUBLIC_URL });
 
 serve({ fetch: app.fetch, port: config.PORT, hostname: config.HOST }, (info) => {
   console.log(`Worker listening on http://${info.address}:${info.port}`);

@@ -251,13 +251,13 @@ isOneToOne: false
                   ]
                 },"invoices": {
                   Row: {
-                    "created_at": string,"created_by": string | null,"due_on": string | null,"id": string,"issued_on": string,"job_id": string,"notes": string | null,"number": number,"org_id": string,"status": Database["public"]['Enums']["invoice_status"],"total_cents": number,"updated_at": string
+                    "sent_at": string | null,"share_token": string | null,"created_at": string,"created_by": string | null,"due_on": string | null,"id": string,"issued_on": string,"job_id": string,"notes": string | null,"number": number,"org_id": string,"status": Database["public"]['Enums']["invoice_status"],"total_cents": number,"updated_at": string
                   }
                   Insert: {
-                    "created_at"?: string,"created_by"?: string | null,"due_on"?: string | null,"id"?: string,"issued_on"?: string,"job_id": string,"notes"?: string | null,"number": number,"org_id": string,"status"?: Database["public"]['Enums']["invoice_status"],"total_cents": number,"updated_at"?: string
+                    "sent_at"?: string | null,"share_token"?: string | null,"created_at"?: string,"created_by"?: string | null,"due_on"?: string | null,"id"?: string,"issued_on"?: string,"job_id": string,"notes"?: string | null,"number": number,"org_id": string,"status"?: Database["public"]['Enums']["invoice_status"],"total_cents": number,"updated_at"?: string
                   }
                   Update: {
-                    "created_at"?: string,"created_by"?: string | null,"due_on"?: string | null,"id"?: string,"issued_on"?: string,"job_id"?: string,"notes"?: string | null,"number"?: number,"org_id"?: string,"status"?: Database["public"]['Enums']["invoice_status"],"total_cents"?: number,"updated_at"?: string
+                    "sent_at"?: string | null,"share_token"?: string | null,"created_at"?: string,"created_by"?: string | null,"due_on"?: string | null,"id"?: string,"issued_on"?: string,"job_id"?: string,"notes"?: string | null,"number"?: number,"org_id"?: string,"status"?: Database["public"]['Enums']["invoice_status"],"total_cents"?: number,"updated_at"?: string
                   }
                   Relationships: [
                     {
@@ -484,13 +484,13 @@ isOneToOne: false
                   ]
                 },"quotes": {
                   Row: {
-                    "created_at": string,"created_by": string | null,"id": string,"job_id": string,"notes": string | null,"org_id": string,"status": Database["public"]['Enums']["quote_status"],"supersedes_quote_id": string | null,"total_cents": number,"updated_at": string,"valid_until": string | null,"version": number
+                    "accepted_at": string | null,"accepted_by_name": string | null,"sent_at": string | null,"share_token": string | null,"created_at": string,"created_by": string | null,"id": string,"job_id": string,"notes": string | null,"org_id": string,"status": Database["public"]['Enums']["quote_status"],"supersedes_quote_id": string | null,"total_cents": number,"updated_at": string,"valid_until": string | null,"version": number
                   }
                   Insert: {
-                    "created_at"?: string,"created_by"?: string | null,"id"?: string,"job_id": string,"notes"?: string | null,"org_id": string,"status"?: Database["public"]['Enums']["quote_status"],"supersedes_quote_id"?: string | null,"total_cents"?: number,"updated_at"?: string,"valid_until"?: string | null,"version": number
+                    "accepted_at"?: string | null,"accepted_by_name"?: string | null,"sent_at"?: string | null,"share_token"?: string | null,"created_at"?: string,"created_by"?: string | null,"id"?: string,"job_id": string,"notes"?: string | null,"org_id": string,"status"?: Database["public"]['Enums']["quote_status"],"supersedes_quote_id"?: string | null,"total_cents"?: number,"updated_at"?: string,"valid_until"?: string | null,"version": number
                   }
                   Update: {
-                    "created_at"?: string,"created_by"?: string | null,"id"?: string,"job_id"?: string,"notes"?: string | null,"org_id"?: string,"status"?: Database["public"]['Enums']["quote_status"],"supersedes_quote_id"?: string | null,"total_cents"?: number,"updated_at"?: string,"valid_until"?: string | null,"version"?: number
+                    "accepted_at"?: string | null,"accepted_by_name"?: string | null,"sent_at"?: string | null,"share_token"?: string | null,"created_at"?: string,"created_by"?: string | null,"id"?: string,"job_id"?: string,"notes"?: string | null,"org_id"?: string,"status"?: Database["public"]['Enums']["quote_status"],"supersedes_quote_id"?: string | null,"total_cents"?: number,"updated_at"?: string,"valid_until"?: string | null,"version"?: number
                   }
                   Relationships: [
                     {
@@ -593,7 +593,7 @@ isOneToOne: false
                            }
           }
           Enums: {
-            "audit_source": "manual"|"voice"|"image"|"text"|"system","capture_status": "uploaded"|"processing"|"ready_for_review"|"committed"|"rejected"|"failed","capture_type": "audio"|"image"|"text","change_set_status": "pending"|"approved"|"rejected","expense_category": "materials"|"subcontractors"|"tools_equipment"|"equipment_rental"|"vehicle"|"supplies"|"permits_licenses"|"insurance"|"phone_software"|"advertising"|"office"|"meals"|"disposal"|"training"|"bank_fees"|"other","invoice_status": "draft"|"sent"|"paid"|"void","job_status": "lead"|"quoted"|"accepted"|"scheduled"|"in_progress"|"completed"|"invoiced"|"paid"|"declined"|"cancelled","material_status": "needed"|"ordered"|"purchased"|"installed"|"returned","org_role": "owner"|"admin"|"member","payment_method": "cash"|"check"|"card"|"transfer"|"other","quote_line_kind": "labor"|"material","quote_status": "draft"|"sent"|"accepted"|"rejected"|"superseded","supply_integration_type": "email"|"api"|"manual","supply_order_status": "draft"|"sent"|"confirmed"|"received"|"cancelled"
+            "audit_source": "manual"|"voice"|"image"|"text"|"system"|"customer","capture_status": "uploaded"|"processing"|"ready_for_review"|"committed"|"rejected"|"failed","capture_type": "audio"|"image"|"text","change_set_status": "pending"|"approved"|"rejected","expense_category": "materials"|"subcontractors"|"tools_equipment"|"equipment_rental"|"vehicle"|"supplies"|"permits_licenses"|"insurance"|"phone_software"|"advertising"|"office"|"meals"|"disposal"|"training"|"bank_fees"|"other","invoice_status": "draft"|"sent"|"paid"|"void","job_status": "lead"|"quoted"|"accepted"|"scheduled"|"in_progress"|"completed"|"invoiced"|"paid"|"declined"|"cancelled","material_status": "needed"|"ordered"|"purchased"|"installed"|"returned","org_role": "owner"|"admin"|"member","payment_method": "cash"|"check"|"card"|"transfer"|"other","quote_line_kind": "labor"|"material","quote_status": "draft"|"sent"|"accepted"|"rejected"|"superseded","supply_integration_type": "email"|"api"|"manual","supply_order_status": "draft"|"sent"|"confirmed"|"received"|"cancelled"
           }
           CompositeTypes: {
             [_ in never]: never
@@ -709,7 +709,7 @@ export type CompositeTypes<
 export const Constants = {
   "public": {
           Enums: {
-            "audit_source": ["manual", "voice", "image", "text", "system"],"capture_status": ["uploaded", "processing", "ready_for_review", "committed", "rejected", "failed"],"capture_type": ["audio", "image", "text"],"change_set_status": ["pending", "approved", "rejected"],"expense_category": ["materials", "subcontractors", "tools_equipment", "equipment_rental", "vehicle", "supplies", "permits_licenses", "insurance", "phone_software", "advertising", "office", "meals", "disposal", "training", "bank_fees", "other"],"invoice_status": ["draft", "sent", "paid", "void"],"job_status": ["lead", "quoted", "accepted", "scheduled", "in_progress", "completed", "invoiced", "paid", "declined", "cancelled"],"material_status": ["needed", "ordered", "purchased", "installed", "returned"],"org_role": ["owner", "admin", "member"],"payment_method": ["cash", "check", "card", "transfer", "other"],"quote_line_kind": ["labor", "material"],"quote_status": ["draft", "sent", "accepted", "rejected", "superseded"],"supply_integration_type": ["email", "api", "manual"],"supply_order_status": ["draft", "sent", "confirmed", "received", "cancelled"]
+            "audit_source": ["manual", "voice", "image", "text", "system", "customer"],"capture_status": ["uploaded", "processing", "ready_for_review", "committed", "rejected", "failed"],"capture_type": ["audio", "image", "text"],"change_set_status": ["pending", "approved", "rejected"],"expense_category": ["materials", "subcontractors", "tools_equipment", "equipment_rental", "vehicle", "supplies", "permits_licenses", "insurance", "phone_software", "advertising", "office", "meals", "disposal", "training", "bank_fees", "other"],"invoice_status": ["draft", "sent", "paid", "void"],"job_status": ["lead", "quoted", "accepted", "scheduled", "in_progress", "completed", "invoiced", "paid", "declined", "cancelled"],"material_status": ["needed", "ordered", "purchased", "installed", "returned"],"org_role": ["owner", "admin", "member"],"payment_method": ["cash", "check", "card", "transfer", "other"],"quote_line_kind": ["labor", "material"],"quote_status": ["draft", "sent", "accepted", "rejected", "superseded"],"supply_integration_type": ["email", "api", "manual"],"supply_order_status": ["draft", "sent", "confirmed", "received", "cancelled"]
           }
         }
 } as const
