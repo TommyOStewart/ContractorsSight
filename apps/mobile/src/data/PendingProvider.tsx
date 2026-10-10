@@ -13,8 +13,18 @@ export interface PendingItem {
   questionCount: number;
 }
 
+/** A recent capture the worker is still on, or that failed (so a note sent before leaving the app isn't lost silently). */
+export interface InFlightItem {
+  id: string;
+  createdAt: string;
+  captureType: string;
+  status: 'processing' | 'failed';
+  error: string | null;
+}
+
 interface PendingState {
   items: PendingItem[];
+  inFlight: InFlightItem[];
   refresh(): Promise<void>;
 }
 
@@ -31,16 +41,31 @@ export function PendingProvider({ children }: { children: ReactNode }) {
   const { memberships } = useSession();
   const orgId = memberships[0]?.orgId;
   const [items, setItems] = useState<PendingItem[]>([]);
+  const [inFlight, setInFlight] = useState<InFlightItem[]>([]);
 
   const refresh = useCallback(async () => {
     if (!orgId) return;
-    const { data } = await supabase
-      .from('change_sets')
-      .select('id, created_at, operations, captures (raw_text, type)')
-      .eq('org_id', orgId)
-      .eq('status', 'pending')
-      .order('created_at', { ascending: false })
-      .limit(50);
+    const [{ data }, { data: recent }] = await Promise.all([
+      supabase
+        .from('change_sets')
+        .select('id, created_at, operations, captures (raw_text, type)')
+        .eq('org_id', orgId)
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false })
+        .limit(50),
+      // Older "processing" rows are worker restarts that will never finish; don't show them forever.
+      supabase
+        .from('captures')
+        .select('id, created_at, type, status, error')
+        .eq('org_id', orgId)
+        .in('status', ['processing', 'failed'])
+        .gte('created_at', new Date(Date.now() - 30 * 60_000).toISOString())
+        .order('created_at', { ascending: false })
+        .limit(10),
+    ]);
+    setInFlight(
+      (recent ?? []).map((c) => ({ id: c.id, createdAt: c.created_at, captureType: c.type, status: c.status as InFlightItem['status'], error: c.error })),
+    );
     setItems(
       (data ?? []).map((row) => {
         const ops = (Array.isArray(row.operations) ? row.operations : []) as { tool?: string }[];
@@ -65,5 +90,15 @@ export function PendingProvider({ children }: { children: ReactNode }) {
     return () => sub.remove();
   }, [refresh]);
 
-  return <PendingContext value={{ items, refresh }}>{children}</PendingContext>;
+  // While the worker is on something, check back every few seconds so the result shows up by itself.
+  const working = inFlight.some((c) => c.status === 'processing');
+  useEffect(() => {
+    if (!working) return;
+    const timer = setInterval(() => {
+      if (AppState.currentState === 'active') void refresh();
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [working, refresh]);
+
+  return <PendingContext value={{ items, inFlight, refresh }}>{children}</PendingContext>;
 }

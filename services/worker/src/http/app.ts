@@ -64,6 +64,7 @@ export function createApp({ sql, verifyUser, capture, audio, images }: AppDeps) 
     orgId: uuid,
     text: z.string().trim().min(1).max(20_000),
     targetJobId: uuid.optional(),
+    clientCaptureId: uuid.optional(),
   });
 
   app.post("/captures", async (c) => {
@@ -83,7 +84,7 @@ export function createApp({ sql, verifyUser, capture, audio, images }: AppDeps) 
     return result.ok ? c.json(result) : c.json(result, 409);
   });
 
-  const audioBody = z.object({ orgId: uuid, audioPath: z.string().min(1).max(500), targetJobId: uuid.optional() });
+  const audioBody = z.object({ orgId: uuid, audioPath: z.string().min(1).max(500), targetJobId: uuid.optional(), clientCaptureId: uuid.optional() });
 
   app.post("/captures/audio", async (c) => {
     if (!capture || !audio) return c.json({ error: "Voice notes aren't configured on this worker." }, 503);
@@ -96,7 +97,12 @@ export function createApp({ sql, verifyUser, capture, audio, images }: AppDeps) 
     return c.json(result, 201);
   });
 
-  const imageBody = z.object({ orgId: uuid, imagePaths: z.array(z.string().min(1).max(500)).min(1).max(5), targetJobId: uuid.optional() });
+  const imageBody = z.object({
+    orgId: uuid,
+    imagePaths: z.array(z.string().min(1).max(500)).min(1).max(5),
+    targetJobId: uuid.optional(),
+    clientCaptureId: uuid.optional(),
+  });
 
   app.post("/captures/image", async (c) => {
     if (!capture || !images) return c.json({ error: "Photos aren't configured on this worker." }, 503);
