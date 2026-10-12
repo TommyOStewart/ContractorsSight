@@ -143,3 +143,32 @@ describe("customer page over HTTP", () => {
     expect((await app.request(`/p/${"x".repeat(43)}`)).status).toBe(404);
   });
 });
+
+describe("previewing before sending", () => {
+  it("shows a member the customer's page without sending it, and refuses outsiders", async () => {
+    const org = await seedOrg();
+    const outsider = await seedOrg();
+    const { quoteId } = await leadWithQuote(org);
+    await sql`update organizations set phone = '(555) 010-2000', license_number = 'PL-1' where id = ${org.orgId}`;
+    const app = createApp({ sql, verifyUser: async (token) => (token === "good" ? org.userId : token === "other" ? outsider.userId : null) });
+    const headers = (who: string) => ({ authorization: `Bearer ${who}`, host: "worker.test" });
+
+    const res = await app.request(`/quotes/${quoteId}/preview`, { method: "POST", headers: headers("good") });
+    expect(res.status).toBe(200);
+    const path = new URL(((await res.json()) as { url: string }).url).pathname;
+    expect(path).toMatch(/^\/p\/preview\//);
+
+    const page = await (await app.request(path)).text();
+    expect(page).toContain("It hasn't been sent.");
+    expect(page).toContain("$2,550.00");
+    expect(page).toContain("License #PL-1");
+    expect(page).not.toContain('method="post"');
+
+    // Still a draft, and the job is still a lead.
+    const [quote] = await sql`select status, share_token from quotes where id = ${quoteId}`;
+    expect(quote).toMatchObject({ status: "draft", shareToken: null });
+
+    expect((await app.request(`/quotes/${quoteId}/preview`, { method: "POST", headers: headers("other") })).status).toBe(404);
+    expect((await app.request(`${path.slice(0, -2)}xx`)).status).toBe(404);
+  });
+});

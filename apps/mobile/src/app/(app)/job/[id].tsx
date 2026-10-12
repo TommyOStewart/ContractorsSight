@@ -5,7 +5,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { JOB_STATUS_TRANSITIONS, type JobStatus } from '@contractorsight/shared';
 import { useSession } from '../../../auth/SessionProvider';
 import { ContactActions } from '../../../contact/ContactActions';
-import { sendDocument } from '../../../contact/sendDocument';
+import { previewDocument, sendDocument } from '../../../contact/sendDocument';
 import { NoteComposer } from '../../../edit/NoteComposer';
 import { changedFields, saveEdit } from '../../../edit/saveEdit';
 import { ScheduleEditor } from '../../../edit/ScheduleEditor';
@@ -154,6 +154,7 @@ export default function JobScreen() {
   const [problem, setProblem] = useState<string | null>(null);
   /** Which document is being sent, and anything to show about it afterwards. */
   const [sending, setSending] = useState<string | null>(null);
+  const [previewing, setPreviewing] = useState<string | null>(null);
   const [sendNote, setSendNote] = useState<{ id: string; message: string; url?: string } | null>(null);
 
   async function send(kind: 'quote' | 'invoice', id: string, invoiceNumber?: number) {
@@ -163,6 +164,14 @@ export default function JobScreen() {
     setSending(null);
     if (!result.ok) setSendNote({ id, message: result.message, url: result.url });
     await reload();
+  }
+
+  async function preview(kind: 'quote' | 'invoice', id: string) {
+    setPreviewing(id);
+    setSendNote(null);
+    const result = await previewDocument({ kind, id });
+    setPreviewing(null);
+    if (!result.ok) setSendNote({ id, message: result.message, url: result.url });
   }
 
   // Reload whenever the screen comes back into view (e.g. after saving a capture about this job).
@@ -342,14 +351,21 @@ export default function JobScreen() {
           ) : job.quote.sentAt ? (
             <Small color={colors.muted}>Sent {day(job.quote.sentAt)}. Waiting for the customer to approve.</Small>
           ) : null}
-          {job.quote.status !== 'superseded' && job.quote.status !== 'rejected' && (
-            <SecondaryButton
-              title={job.quote.acceptedAt ? 'Send a copy' : job.quote.sentAt ? 'Send again' : 'Send to customer'}
-              icon="send"
-              busy={sending === job.quote.id}
-              onPress={() => void send('quote', job.quote!.id)}
-            />
-          )}
+          <View style={styles.contactRow}>
+            <View style={{ flex: 1 }}>
+              <SecondaryButton title="Preview" icon="eye" busy={previewing === job.quote.id} onPress={() => void preview('quote', job.quote!.id)} />
+            </View>
+            {job.quote.status !== 'superseded' && job.quote.status !== 'rejected' && (
+              <View style={{ flex: 1 }}>
+                <SecondaryButton
+                  title={job.quote.acceptedAt ? 'Send a copy' : job.quote.sentAt ? 'Send again' : 'Send'}
+                  icon="send"
+                  busy={sending === job.quote.id}
+                  onPress={() => void send('quote', job.quote!.id)}
+                />
+              </View>
+            )}
+          </View>
           <SendNote note={sendNote} id={job.quote.id} />
         </Card>
       ) : (
@@ -370,14 +386,21 @@ export default function JobScreen() {
                 <Small color={owed > 0 ? colors.accent : colors.success}>
                   {owed > 0 ? `Owes ${money(owed)}` : 'Paid in full'} · {inv.sentAt ? `sent ${day(inv.sentAt)}` : `made ${day(inv.issuedOn)}, not sent yet`}
                 </Small>
-                {owed > 0 && (
-                  <SecondaryButton
-                    title={inv.sentAt ? 'Send again' : 'Send to customer'}
-                    icon="send"
-                    busy={sending === inv.id}
-                    onPress={() => void send('invoice', inv.id, inv.number)}
-                  />
-                )}
+                <View style={styles.contactRow}>
+                  <View style={{ flex: 1 }}>
+                    <SecondaryButton title="Preview" icon="eye" busy={previewing === inv.id} onPress={() => void preview('invoice', inv.id)} />
+                  </View>
+                  {owed > 0 && (
+                    <View style={{ flex: 1 }}>
+                      <SecondaryButton
+                        title={inv.sentAt ? 'Send again' : 'Send'}
+                        icon="send"
+                        busy={sending === inv.id}
+                        onPress={() => void send('invoice', inv.id, inv.number)}
+                      />
+                    </View>
+                  )}
+                </View>
                 <SendNote note={sendNote} id={inv.id} />
               </Card>
             );

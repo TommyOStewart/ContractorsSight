@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { serve } from "@hono/node-server";
 import { supabaseVerifyUser } from "./auth";
 import { loadConfig } from "./config";
@@ -28,7 +29,19 @@ const images = config.OPENROUTER_API_KEY
   ? { imageReader: new OpenRouterImageReader({ apiKey: config.OPENROUTER_API_KEY, model: config.READ_IMAGE_MODEL }), downloadFile }
   : undefined;
 
-const app = createApp({ sql, verifyUser: supabaseVerifyUser(config.SUPABASE_URL, config.SUPABASE_PUBLISHABLE_KEY), capture, audio, images, publicUrl: config.PUBLIC_URL });
+// Preview links are signed with a key only the worker knows, derived from its database password
+// so every running copy of the worker agrees on it (and rotating the password retires old links).
+const previewSecret = createHash("sha256").update(`preview-links:${config.DATABASE_URL}`).digest();
+
+const app = createApp({
+  sql,
+  verifyUser: supabaseVerifyUser(config.SUPABASE_URL, config.SUPABASE_PUBLISHABLE_KEY),
+  capture,
+  audio,
+  images,
+  publicUrl: config.PUBLIC_URL,
+  previewSecret,
+});
 
 serve({ fetch: app.fetch, port: config.PORT, hostname: config.HOST }, (info) => {
   console.log(`Worker listening on http://${info.address}:${info.port}`);

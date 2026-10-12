@@ -100,9 +100,18 @@ export interface SharedLine {
 
 interface SharedCommon {
   company: string;
+  /** How the customer reaches the company; each null until the owner fills it in. */
+  companyPhone: string | null;
+  companyEmail: string | null;
+  /** One printed line per row. */
+  companyAddress: string | null;
+  licenseNumber: string | null;
   client: string | null;
+  clientPhone: string | null;
+  clientEmail: string | null;
   jobTitle: string;
-  address: string | null;
+  /** The job site as printed lines ("412 Oak St", "Springfield, IL 62701"), or empty. */
+  siteAddress: string[];
   lines: SharedLine[];
   totalCents: number;
   notes: string | null;
@@ -113,6 +122,8 @@ export type SharedDocument =
       kind: "quote";
       version: number;
       status: string;
+      /** The day it was sent, or today for one not sent yet (a preview). */
+      quotedOn: string;
       /** A newer version exists, so this one can't be approved. */
       superseded: boolean;
       validUntil: string | null;
@@ -121,59 +132,98 @@ export type SharedDocument =
     })
   | (SharedCommon & { kind: "invoice"; number: number; status: string; issuedOn: string; dueOn: string | null; paidCents: number });
 
-/** The document behind a link token, or null if there is none. */
-export async function loadSharedDocument(sql: Sql, token: string): Promise<SharedDocument | null> {
+interface PartyRow {
+  company: string;
+  companyPhone: string | null;
+  companyEmail: string | null;
+  companyAddress: string | null;
+  licenseNumber: string | null;
+  client: string | null;
+  clientPhone: string | null;
+  clientEmail: string | null;
+  jobTitle: string;
+  line1: string | null;
+  line2: string | null;
+  city: string | null;
+  region: string | null;
+  postalCode: string | null;
+}
+
+// The company, customer and job site, for a query whose job is aliased `j` and org `o`.
+const partyColumns = (sql: Sql) => sql`
+  o.name as company, o.phone as company_phone, o.email as company_email, o.address as company_address, o.license_number,
+  c.name as client, c.phone as client_phone, c.email as client_email, j.title as job_title,
+  s.line1, s.line2, s.city, s.region, s.postal_code`;
+
+function parties(row: PartyRow): Omit<SharedCommon, "lines" | "totalCents" | "notes"> {
+  const place = [row.city, [row.region, row.postalCode].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+  return {
+    company: row.company,
+    companyPhone: row.companyPhone,
+    companyEmail: row.companyEmail,
+    companyAddress: row.companyAddress,
+    licenseNumber: row.licenseNumber,
+    client: row.client,
+    clientPhone: row.clientPhone,
+    clientEmail: row.clientEmail,
+    jobTitle: row.jobTitle,
+    siteAddress: [row.line1, row.line2, place].filter((l): l is string => !!l),
+  };
+}
+
+type Fragment = postgres.PendingQuery<postgres.Row[]>;
+
+/** Which document to load: by the customer's link token, or by ID for a member's preview. */
+type DocumentKey = { token: string } | { kind: "quote" | "invoice"; id: string };
+
+async function loadQuote(sql: Sql, where: Fragment): Promise<SharedDocument | null> {
   const [quote] = await sql<
-    {
+    (PartyRow & {
       id: string;
       version: number;
       status: string;
       notes: string | null;
+      quotedOn: string;
       validUntil: string | null;
       totalCents: string;
       acceptedAt: Date | null;
       acceptedByName: string | null;
       superseded: boolean;
-      company: string;
-      client: string | null;
-      jobTitle: string;
-      line1: string | null;
-      city: string | null;
-    }[]
+    })[]
   >`
-    select q.id, q.version, q.status, q.notes, q.valid_until::text, q.total_cents, q.accepted_at, q.accepted_by_name,
+    select q.id, q.version, q.status, q.notes, coalesce(q.sent_at, now())::date::text as quoted_on, q.valid_until::text,
+           q.total_cents, q.accepted_at, q.accepted_by_name,
            exists (select 1 from quotes n where n.job_id = q.job_id and n.version > q.version) as superseded,
-           o.name as company, c.name as client, j.title as job_title, s.line1, s.city
+           ${partyColumns(sql)}
     from quotes q
     join jobs j on j.id = q.job_id
     join organizations o on o.id = q.org_id
     left join clients c on c.id = j.client_id
     left join sites s on s.id = j.site_id
-    where q.share_token = ${token}`;
-  if (quote) {
-    const lines = await sql<SharedLine[]>`
-      select description, quantity::float8 as quantity, unit, unit_price_cents::float8 as unit_price_cents
-      from quote_line_items where quote_id = ${quote.id} order by position`;
-    return {
-      kind: "quote",
-      company: quote.company,
-      client: quote.client,
-      jobTitle: quote.jobTitle,
-      address: [quote.line1, quote.city].filter(Boolean).join(", ") || null,
-      lines,
-      totalCents: Number(quote.totalCents),
-      notes: quote.notes,
-      version: quote.version,
-      status: quote.status,
-      superseded: quote.superseded || quote.status === "superseded",
-      validUntil: quote.validUntil,
-      acceptedAt: quote.acceptedAt,
-      acceptedByName: quote.acceptedByName,
-    };
-  }
+    where ${where}`;
+  if (!quote) return null;
+  const lines = await sql<SharedLine[]>`
+    select description, quantity::float8 as quantity, unit, unit_price_cents::float8 as unit_price_cents
+    from quote_line_items where quote_id = ${quote.id} order by position`;
+  return {
+    kind: "quote",
+    ...parties(quote),
+    lines,
+    totalCents: Number(quote.totalCents),
+    notes: quote.notes,
+    version: quote.version,
+    status: quote.status,
+    quotedOn: quote.quotedOn,
+    superseded: quote.superseded || quote.status === "superseded",
+    validUntil: quote.validUntil,
+    acceptedAt: quote.acceptedAt,
+    acceptedByName: quote.acceptedByName,
+  };
+}
 
+async function loadInvoice(sql: Sql, where: Fragment): Promise<SharedDocument | null> {
   const [invoice] = await sql<
-    {
+    (PartyRow & {
       id: string;
       number: number;
       status: string;
@@ -182,32 +232,24 @@ export async function loadSharedDocument(sql: Sql, token: string): Promise<Share
       dueOn: string | null;
       totalCents: string;
       paidCents: string;
-      company: string;
-      client: string | null;
-      jobTitle: string;
-      line1: string | null;
-      city: string | null;
-    }[]
+    })[]
   >`
     select i.id, i.number, i.status, i.notes, i.issued_on::text, i.due_on::text, i.total_cents,
            (select coalesce(sum(amount_cents), 0) from payments p where p.invoice_id = i.id) as paid_cents,
-           o.name as company, c.name as client, j.title as job_title, s.line1, s.city
+           ${partyColumns(sql)}
     from invoices i
     join jobs j on j.id = i.job_id
     join organizations o on o.id = i.org_id
     left join clients c on c.id = j.client_id
     left join sites s on s.id = j.site_id
-    where i.share_token = ${token}`;
+    where ${where}`;
   if (!invoice) return null;
   const lines = await sql<SharedLine[]>`
     select description, quantity::float8 as quantity, unit, unit_price_cents::float8 as unit_price_cents
     from invoice_line_items where invoice_id = ${invoice.id} order by position`;
   return {
     kind: "invoice",
-    company: invoice.company,
-    client: invoice.client,
-    jobTitle: invoice.jobTitle,
-    address: [invoice.line1, invoice.city].filter(Boolean).join(", ") || null,
+    ...parties(invoice),
     lines,
     totalCents: Number(invoice.totalCents),
     notes: invoice.notes,
@@ -217,6 +259,23 @@ export async function loadSharedDocument(sql: Sql, token: string): Promise<Share
     dueOn: invoice.dueOn,
     paidCents: Number(invoice.paidCents),
   };
+}
+
+/** The document behind a link token (or, for a preview, an ID), or null if there is none. */
+export async function loadSharedDocument(sql: Sql, key: string | DocumentKey): Promise<SharedDocument | null> {
+  const k = typeof key === "string" ? { token: key } : key;
+  if ("token" in k) return (await loadQuote(sql, sql`q.share_token = ${k.token}`)) ?? loadInvoice(sql, sql`i.share_token = ${k.token}`);
+  return k.kind === "quote" ? loadQuote(sql, sql`q.id = ${k.id}`) : loadInvoice(sql, sql`i.id = ${k.id}`);
+}
+
+/** Whether the user belongs to the company that owns this quote or invoice. */
+export async function canPreview(sql: Sql, input: { userId: string; kind: "quote" | "invoice"; id: string }): Promise<boolean> {
+  const table = sql(input.kind === "quote" ? "quotes" : "invoices");
+  const [row] = await sql`
+    select 1 from ${table} d
+    where d.id = ${input.id}
+      and exists (select 1 from org_members m where m.org_id = d.org_id and m.user_id = ${input.userId})`;
+  return !!row;
 }
 
 /**
