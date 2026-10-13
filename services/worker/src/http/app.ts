@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { z } from "zod";
@@ -15,7 +16,8 @@ import {
 import { approveChangeSet, ChangeSetError, rejectChangeSet, updateOperation } from "../commit/changeSetService";
 import { applyManualEdit } from "../commit/manualEdits";
 import { renderMissingPage, renderSharedPage } from "../sharing/page";
-import { approveSharedQuote, loadSharedDocument, shareInvoice, shareQuote } from "../sharing/shareService";
+import { previewToken, readPreviewToken } from "../sharing/previewLink";
+import { approveSharedQuote, canPreview, loadSharedDocument, shareInvoice, shareQuote } from "../sharing/shareService";
 import type { Sql } from "../db/sql";
 
 /** Resolves a bearer token to a user ID, or null if the token is missing, invalid, or expired. */
@@ -32,6 +34,8 @@ export interface AppDeps {
   images?: ImageDeps;
   /** Base for customer links (e.g. https://worker.example.com); defaults to the address requests arrive on. */
   publicUrl?: string;
+  /** Signs preview links; a random one (links die with the process) when not given. */
+  previewSecret?: Buffer;
 }
 
 type Env = { Variables: { userId: string; accessToken: string } };
@@ -42,7 +46,7 @@ const uuid = z.uuid();
  * The worker's HTTP API. Every route requires the user's Supabase access token; the worker then
  * acts with database-level access, so each handler checks org membership itself.
  */
-export function createApp({ sql, verifyUser, capture, audio, images, publicUrl }: AppDeps) {
+export function createApp({ sql, verifyUser, capture, audio, images, publicUrl, previewSecret = randomBytes(32) }: AppDeps) {
   const app = new Hono<Env>();
 
   // Browsers (the web build) need CORS; phones don't. Any origin is fine: every request carries its
@@ -61,6 +65,13 @@ export function createApp({ sql, verifyUser, capture, audio, images, publicUrl }
     "x-robots-tag": "noindex",
     "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
   };
+
+  // A member's look at a quote or invoice before sending it: same page, nothing to submit.
+  app.get("/p/preview/:token", async (c) => {
+    const target = readPreviewToken(previewSecret, c.req.param("token"));
+    const doc = target ? await loadSharedDocument(sql, target) : null;
+    return c.body(doc ? renderSharedPage(doc, null, { preview: true }) : renderMissingPage(), doc ? 200 : 404, pageHeaders);
+  });
 
   app.get("/p/:token", async (c) => {
     const token = shareToken.safeParse(c.req.param("token"));
@@ -224,6 +235,16 @@ export function createApp({ sql, verifyUser, capture, audio, images, publicUrl }
     const { token } = await shareInvoice(sql, { userId: c.get("userId"), invoiceId: id.data });
     return c.json({ url: linkFor(c, token) });
   });
+
+  // A link to see a quote or invoice as the customer will, without sending it.
+  for (const kind of ["quote", "invoice"] as const) {
+    app.post(`/${kind}s/:id/preview`, async (c) => {
+      const id = uuid.safeParse(c.req.param("id"));
+      const notFound = kind === "quote" ? "Quote not found." : "Invoice not found.";
+      if (!id.success || !(await canPreview(sql, { userId: c.get("userId"), kind, id: id.data }))) return c.json({ error: notFound }, 404);
+      return c.json({ url: linkFor(c, `preview/${previewToken(previewSecret, { kind, id: id.data })}`) });
+    });
+  }
 
   app.post("/change-sets/:id/answer", async (c) => {
     if (!capture) return c.json({ error: "Captures aren't configured on this worker." }, 503);

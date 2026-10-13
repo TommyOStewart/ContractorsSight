@@ -1,4 +1,4 @@
-import { Share } from 'react-native';
+import { Linking, Share } from 'react-native';
 import { worker, WorkerError } from '../lib/worker';
 
 // Sending goes out through the contractor's own phone (the share sheet: Messages, email, …), like
@@ -32,5 +32,21 @@ export async function sendDocument(input: {
   } catch {
     // No share sheet (e.g. a desktop browser): show the link to copy instead.
     return { ok: false, message: 'Copy this link and send it to your customer:', url };
+  }
+}
+
+/** Opens the customer's page in the browser exactly as they'll see it, without sending it. */
+export async function previewDocument(input: { kind: 'quote' | 'invoice'; id: string }): Promise<SendResult> {
+  let url: string;
+  try {
+    url = (input.kind === 'quote' ? await worker.previewQuote(input.id) : await worker.previewInvoice(input.id)).url;
+  } catch (e) {
+    return { ok: false, message: e instanceof WorkerError ? e.message : 'Something went wrong making the preview.' };
+  }
+  try {
+    await Linking.openURL(url);
+    return { ok: true };
+  } catch {
+    return { ok: false, message: 'Open this link to see the preview:', url };
   }
 }

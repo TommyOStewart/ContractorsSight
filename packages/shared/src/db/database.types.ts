@@ -414,13 +414,13 @@ isOneToOne: false
                   ]
                 },"organizations": {
                   Row: {
-                    "created_at": string,"id": string,"name": string,"updated_at": string
+                    "address": string | null,"created_at": string,"email": string | null,"id": string,"license_number": string | null,"name": string,"phone": string | null,"updated_at": string
                   }
                   Insert: {
-                    "created_at"?: string,"id"?: string,"name": string,"updated_at"?: string
+                    "address"?: string | null,"created_at"?: string,"email"?: string | null,"id"?: string,"license_number"?: string | null,"name": string,"phone"?: string | null,"updated_at"?: string
                   }
                   Update: {
-                    "created_at"?: string,"id"?: string,"name"?: string,"updated_at"?: string
+                    "address"?: string | null,"created_at"?: string,"email"?: string | null,"id"?: string,"license_number"?: string | null,"name"?: string,"phone"?: string | null,"updated_at"?: string
                   }
                   Relationships: [
                     

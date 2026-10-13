@@ -152,6 +152,9 @@ export const worker = {
   /** Marks a quote or invoice sent and returns the link to give the customer. */
   shareQuote: (quoteId: string) => call<{ url: string }>(`/quotes/${quoteId}/share`),
   shareInvoice: (invoiceId: string) => call<{ url: string }>(`/invoices/${invoiceId}/share`),
+  /** A 30-minute link to the customer's page, without sending anything. */
+  previewQuote: (quoteId: string) => call<{ url: string }>(`/quotes/${quoteId}/preview`),
+  previewInvoice: (invoiceId: string) => call<{ url: string }>(`/invoices/${invoiceId}/preview`),
   /** A hand edit: applied right away (no review), validated and audited like any other change. */
   edit: (orgId: string, operations: { tool: string; args: Record<string, unknown> }[], baseJobVersions?: Record<string, number>) =>
     call<{ ok: true; tempIdMap: Record<string, string> }>('/edits', { orgId, operations, baseJobVersions }),
